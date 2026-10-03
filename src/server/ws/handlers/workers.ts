@@ -64,6 +64,8 @@ export const workerHandlers = {
     const { floor, info } = w;
     const to = msg.node === HOST ? '' : str(msg.node, 64);
     const there = to || "the office's machine";
+    const why = router.cantMove(info.id, to);
+    if (why) return ctx.warn(c, why);
     ctx.toastFloor(floor, `🖥️ ${c.peer.name} is moving ${info.name} to ${there}`);
     void router.move(info.id, to).then((err) => (err ? ctx.toastFloor(floor, err, 'warn') : ctx.toastFloor(floor, `🖥️ ${info.name} is on ${there} now, carrying on where it was`)));
   },

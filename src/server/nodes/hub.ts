@@ -20,6 +20,7 @@ export interface Routed {
   nodeUp(node: string, host: PtyHost, sessions: string[]): void;
   /** Moves a worker to `to` (a node, or '' for the office's machine); says what went wrong. */
   move(workerId: string, to: string): Promise<string | undefined>;
+  cantMove(workerId: string, to: string): string | undefined;
 }
 
 interface Channel {

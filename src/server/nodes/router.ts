@@ -130,18 +130,14 @@ export class NodeRouter extends PtyHost implements Routed {
    * Anything going wrong leaves it where it was, started again. Says what went wrong.
    */
   async move(id: string, to: string): Promise<string | undefined> {
-    const info = this.workers.get(id);
-    if (!info) return 'No such worker';
-    if (!portable(info)) return 'Only an agent in its own worktree can move to another machine';
+    const why = this.cantMove(id, to);
+    if (why) return why;
+    const info = this.workers.get(id)!;
     const from = info.node ?? '';
-    if (from === to) return `${info.name} already runs ${to ? `on ${to}` : "on the office's machine"}`;
-    if (this.moving.has(id)) return `${info.name} is already moving`;
-    if (info.status === 'working') return `${info.name} is in the middle of something: move it once it's done (Esc in its terminal stops it)`;
-    for (const n of [from, to]) if (n && !hub.hostOn(n, this.ch)) return `${n} isn't connected to the office`;
     const wt = info.worktree!;
     this.moving.add(id);
     try {
-      await this.halt(id);
+      if (!(await this.halt(id))) throw new Error("it didn't stop in time");
       const message = `wip: ${info.name} moves to ${to || 'the office'}`;
       const { branch } = from ? await hub.call(from, { op: 'handoff', ch: this.ch, path: wt.path, message }) : await handOff(path.join(this.dir, wt.path), message);
       const at = { path: wt.path, branch: wt.branch, base: wt.base, from: wt.from };
@@ -160,6 +156,19 @@ export class NodeRouter extends PtyHost implements Routed {
     }
   }
 
+  /** Why a worker can't move to `to` now, if it can't. */
+  cantMove(id: string, to: string): string | undefined {
+    const info = this.workers.get(id);
+    if (!info) return 'No such worker';
+    if (!portable(info)) return 'Only an agent in its own worktree can move to another machine';
+    const from = info.node ?? '';
+    if (from === to) return `${info.name} already runs ${to ? `on ${to}` : "on the office's machine"}`;
+    if (this.moving.has(id)) return `${info.name} is already moving`;
+    if (info.status === 'working') return `${info.name} is in the middle of something: move it once it's done (Esc in its terminal stops it)`;
+    for (const n of [from, to]) if (n && !hub.hostOn(n, this.ch)) return `${n} isn't connected to the office`;
+    return undefined;
+  }
+
   private track(worker: string, p: Pty) {
     this.byWorker.set(worker, p);
     p.onExit(() => {
@@ -167,15 +176,15 @@ export class NodeRouter extends PtyHost implements Routed {
     });
   }
 
-  /** Ends a worker's terminal, and waits until it has (a while at most). */
-  private halt(worker: string): Promise<void> {
+  /** Ends a worker's terminal and waits for it: false if it's still going after a while, and mustn't be moved from under. */
+  private halt(worker: string): Promise<boolean> {
     const p = this.byWorker.get(worker);
-    if (!p) return Promise.resolve();
+    if (!p) return Promise.resolve(true);
     return new Promise((resolve) => {
-      const timer = setTimeout(resolve, 10_000);
+      const timer = setTimeout(() => resolve(false), 10_000);
       p.onExit(() => {
         clearTimeout(timer);
-        resolve();
+        resolve(true);
       });
       p.kill();
     });
