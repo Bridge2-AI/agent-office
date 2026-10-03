@@ -33,27 +33,38 @@ When you hire a worker **in its own git worktree**, the hire window's **🖥️ 
 - **Auto** (the default): the machine with the most memory to spare right now. That's the office's own machine, which keeps 1.5 GB back for the office itself, or any node that's connected, has the project ready, and isn't at its `--max-workers`. Each worker placed in the last minute counts 700 MB against its machine until the node's numbers catch up, so a burst of hires spreads out.
 - **This office's machine**, or a **node by name**, to pin it.
 
-The worker stays on that machine for good. The workers list (and its card on `/lite`) says which one: 🖥️ alice-pc. A card dropped on a desk hires on Auto. Everything else runs on the office's machine: shells, board agents, meetings, workers without a worktree of their own, and workers across several repositories.
+The worker stays on that machine until someone moves it (see below). The workers list (and its card on `/lite`) says which one: 🖥️ alice-pc. A card dropped on a desk hires on Auto. Everything else runs on the office's machine: shells, board agents, meetings, workers without a worktree of their own, and workers across several repositories.
 
 ## What happens on the node
 
 When a node joins, the office tells it about every floor. The node clones each project from its `origin` (once, with your git credentials), and starts a terminal host for it, like the office's own (see [how it works](how-it-works.md)). A worker hired onto it gets:
 
 - **its worktree there**, on the same `office/<name>` branch the office made, cut from the same commit (or from `origin/<branch>` if that commit was never pushed);
-- **your sign-ins**: the node's own `claude`, `gh` and git config, never the office's. Its environment is the node's, plus what the office sets for a worker (its id, its hook token, the model and so on);
+- **your sign-ins**: the node's own `claude`, `codex` or `opencode`, `gh` and git config, never the office's. Its environment is the node's, plus what the office sets for a worker (its id, its hook token, the model and so on);
 - **the office's hooks and `office-workers`**, which reach the office through the node's connection: status, needs-input alerts and `office-workers list|hire|tell|home` work as on the office.
 
 Claude asks once whether to trust the node's clone of a project: if a node's worker shows as needing you right after it starts, open its terminal and accept.
 
 If the node's connection drops (Wi-Fi, a laptop lid), what was in flight is resent when it comes back, within two minutes, and nothing is lost. When the office restarts (an upgrade, say), a node's workers keep running and the office picks them back up as the node reconnects. If it's gone for longer, or `agent-office node` itself restarts, its workers start again on it when it's back, resuming their conversations. A node that's away shows its workers asleep; walking onto the floor tries to wake them and says the node isn't connected.
 
+## Moving a worker
+
+A worker can carry on on another machine, its work and its conversation with it: **🖥️ Move to…** in its terminal's header (or 🖥️ on its card on `/lite`), then pick the office's machine or a node. It works for Claude Code, Codex and OpenCode workers in their own worktree, while both machines are connected and the worker isn't in the middle of a turn. Moving it:
+
+1. stops it;
+2. commits whatever its worktree holds (`wip: <name> moves to <machine>`) and pushes its branch, from the machine it was on, with that machine's git sign-in;
+3. brings its worktree on the other machine to that commit, making it there first if it has to (a worktree there with changes of its own stops the move);
+4. carries its conversation across: Claude Code's transcript and Codex's rollout are copied to where each looks for them on the other machine, with the folder it worked in rewritten to the one it carries on in, and OpenCode's goes through `opencode export` and `opencode import`;
+5. starts it there, resuming its conversation.
+
+If anything goes wrong on the way, it starts again where it was and a toast says why. A worker on another agent keeps its work but starts a fresh conversation. Moving one to the office's machine is also how to use 🔀 Changes and **O** on it (see below).
+
 ## Not on a node yet
 
 These still only work for workers on the office's machine:
 
 - **Cost.** A node's workers' spend isn't counted in the office's totals or budget.
-- **🔀 Changes and O (open PR).** These look at the office's copy of the worktree, which stays empty. Ask the worker to push and open its pull request itself (`gh pr create`): the office picks it up and shows it at the desk.
+- **🔀 Changes and O (open PR).** These look at the office's copy of the worktree, which stays empty. Ask the worker to push and open its pull request itself (`gh pr create`), and the office picks it up and shows it at the desk, or move it to the office's machine.
 - **🌐 Services.** A node's workers' dev servers aren't listed or tunnelled.
 - **Dropping files** into a node's worker's terminal.
 - **Sending home** deletes the office's copy of the worktree, not the node's: run `git worktree prune` in the node's clone now and then.
-- **Moving** a running worker to another machine.

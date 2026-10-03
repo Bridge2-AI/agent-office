@@ -1,11 +1,9 @@
-import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
 import http from 'node:http';
 import type net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import type { TLSSocket } from 'node:tls';
-import { promisify } from 'node:util';
 import { WebSocket } from 'ws';
 import { AGENT_PROVIDERS } from '../../shared/providers.js';
 import { excludeFromGit } from '../config.js';
@@ -14,10 +12,9 @@ import { PROVIDERS } from '../providers/index.js';
 import { PTY_PROTOCOL, PtyHost, readMessages, type SpawnOpts } from '../ptys.js';
 import { childEnv } from '../workers/env.js';
 import { binScript, defaultShell, resolveCommand, shellRun, shq, writeOfficeCommands } from '../workers/process.js';
+import { Carry, git, handOff, makeWorktree, takeOver, unpack, writePiece } from './handoff.js';
 import { Link } from './link.js';
-import { NODE_PATH, NODE_PROTOCOL, type FromNode, type Hello, type RemoteSpawn, type ToNode } from './wire.js';
-
-const execFileP = promisify(execFile);
+import { NODE_PATH, NODE_PROTOCOL, type FromNode, type Hello, type NodeCall, type ToNode } from './wire.js';
 
 const HELP = `agent-office node — lend this machine's compute to an office
 
@@ -139,6 +136,7 @@ class Node {
   private nextId = 0;
   private commands = new Map<string, string | null>();
   private backoff = 1000;
+  private carry = new Carry();
 
   constructor(private o: Options) {}
 
@@ -230,6 +228,39 @@ class Node {
         this.pending.get(m.id)?.(m);
         this.pending.delete(m.id);
         break;
+      case 'rpc':
+        this.call(m).then(
+          (result) => this.send({ t: 'rpc.res', id: m.id, ok: true, result }),
+          (err) => this.send({ t: 'rpc.res', id: m.id, ok: false, error: (err as Error).message }),
+        );
+        break;
+    }
+  }
+
+  /** What the office asks of this machine while it moves a worker to or from it (see handoff.ts). */
+  private async call(c: NodeCall): Promise<unknown> {
+    const where = (ch: string, rel: string) => {
+      const f = this.floors.get(ch);
+      if (!f) throw new Error("this node hasn't got the project ready");
+      return { dir: f.dir, cwd: path.join(f.dir, rel) };
+    };
+    switch (c.op) {
+      case 'handoff':
+        return handOff(where(c.ch, c.path).cwd, c.message);
+      case 'takeover': {
+        const { dir, cwd } = where(c.ch, c.wt.path);
+        return takeOver(dir, cwd, c.wt, c.branch);
+      }
+      case 'session.pack':
+        return this.carry.pack(c.carrier, c.sessionId, where(c.ch, c.path).cwd, process.env);
+      case 'session.read':
+        return this.carry.read(c.sessionId, c.key, c.offset);
+      case 'session.done':
+        return this.carry.done(c.sessionId);
+      case 'session.write':
+        return writePiece(c.carrier, c.sessionId, c.key, where(c.ch, c.path).cwd, process.env, c.offset, c.data);
+      case 'session.unpack':
+        return unpack(c.carrier, c.sessionId, c.keys, c.fromCwd, where(c.ch, c.path).cwd, process.env);
     }
   }
 
@@ -274,9 +305,13 @@ class Node {
     try {
       const r = opts.remote;
       if (!r) throw new Error('the office sent a spawn with no worktree');
-      const map = (s: string) => s.split(f.officeDir).join(f.dir);
+      // The office's paths, in what it says to run, made this machine's: its project, and its install.
+      const swaps: [string, string][] = [[f.officeDir, f.dir], [r.officeNode, process.execPath]];
+      const bin = binScript('office-workers.js');
+      if (r.officeBin && bin) swaps.push([r.officeBin, path.dirname(bin)]);
+      const map = (s: string) => swaps.reduce((acc, [a, b]) => acc.split(a).join(b), s);
       const cwd = map(opts.cwd);
-      await worktree(f.dir, cwd, r);
+      await makeWorktree(f.dir, cwd, r);
       const env = childEnv();
       for (const k of r.envKeys) if (opts.env[k] !== undefined) env[k] = map(opts.env[k]);
       Object.assign(env, { TERM: 'xterm-256color', COLORTERM: 'truecolor', AGENT_OFFICE_HOOK_URL: this.relayUrl });
@@ -330,31 +365,5 @@ class Node {
     if (!this.link?.connected) return;
     const cores = os.cpus().length;
     this.send({ t: 'stats', stats: { cores, load: os.loadavg()[0], memTotal: os.totalmem(), memFree: os.freemem(), workers: this.live.size, maxWorkers: this.o.maxWorkers } });
-  }
-}
-
-/** The worker's worktree here, made from origin like the office made its own: from its base commit, else the branch it targets, else its branch as it is. */
-async function worktree(dir: string, cwd: string, r: RemoteSpawn) {
-  if (existsSync(cwd)) return;
-  await git(['fetch', '--quiet', '--no-tags', 'origin', ...(r.from ? [r.from] : [])], dir, 60_000).catch(() => {});
-  const tries = [['worktree', 'add', '-b', r.branch, cwd, r.base], ...(r.from ? [['worktree', 'add', '-b', r.branch, cwd, `origin/${r.from}`]] : []), ['worktree', 'add', cwd, r.branch]];
-  let last: unknown;
-  for (const args of tries) {
-    try {
-      await git(args, dir, 60_000);
-      return;
-    } catch (err) {
-      last = err;
-    }
-  }
-  throw new Error(`couldn't make its worktree here: ${(last as Error).message}`);
-}
-
-async function git(args: string[], cwd: string, timeout: number) {
-  try {
-    await execFileP('git', args, { cwd, timeout, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
-  } catch (err) {
-    const stderr = String((err as { stderr?: string }).stderr ?? '').trim();
-    throw new Error(stderr.split('\n').filter(Boolean).pop() || (err as Error).message);
   }
 }

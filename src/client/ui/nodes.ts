@@ -1,11 +1,12 @@
 import './nodes.css';
-import type { NodeView } from '../../shared/protocol';
+import type { NodeView, WorkerInfo } from '../../shared/protocol';
+import { DESK_BY_ID } from '../../shared/layout';
 import { store } from '../state';
 import { h, openModal } from './dom';
 
 // Teammates' machines lending the office their compute (see docs/nodes.md): which one a new worker
-// runs on, in the hire dialogs, and the ☰ menu's 🖥️ Machines window. The office's own machine isn't
-// a node, so it's in neither list (the machine monitor is its own).
+// runs on, in the hire dialogs, moving one that's running, and the ☰ menu's 🖥️ Machines window. The
+// office's own machine isn't a node, so the Machines list leaves it out (the machine monitor is its own).
 
 const NODE_KEY = 'agent-office.node';
 
@@ -97,4 +98,68 @@ export function openMachines() {
   const off = store.on('nodes', render);
   openModal(el, { doing: '🖥️ looking over the machines', onClose: () => off() });
   render();
+}
+
+/**
+ * Whether a worker can move to another machine: an agent in a worktree of its own that's still there,
+ * not across repositories, in a meeting or at a board's kiosk, once a node has joined.
+ */
+export function movable(w: WorkerInfo): boolean {
+  return store.nodes.length > 0 && w.kind === 'agent' && !!w.worktree && !w.lost && !w.repos?.length && !w.meeting && !DESK_BY_ID.get(w.deskId)?.station;
+}
+
+/**
+ * 🖥️ Move to…: picks the machine a running worker carries on on (a node's name, or 'host' for the
+ * office's own), every one but where it is now. Not while it's working: the office refuses then.
+ */
+export function moveDialog(w: WorkerInfo, onMove: (node: string) => void) {
+  const select = h('select', { 'aria-label': 'Machine to move to' }) as HTMLSelectElement;
+  const busy = h('p.wt-status.warn', {}, 'It’s in the middle of something: move it once it’s done');
+  const no = h('button.btn', { type: 'button' }, 'Cancel');
+  const yes = h('button.btn.primary', { type: 'submit' }, 'Move');
+  const form = h(
+    'form.modal',
+    { role: 'dialog', 'aria-label': `Move ${w.name}` },
+    h('header', {}, h('h2', {}, `Move ${w.name}`)),
+    h(
+      'div.body',
+      {},
+      h('p', { style: 'margin:0;font-weight:700' }, 'It stops, its work is committed and pushed, and it carries on — conversation and all — on the machine you pick.'),
+      h('label.node-pick', {}, h('span', {}, '🖥️ To'), select),
+      busy,
+    ),
+    h('footer', {}, no, yes),
+  ) as HTMLFormElement;
+  // Nodes come and go, and the worker gets busy or moves, while it's open.
+  const sync = () => {
+    const now = store.workers.get(w.id);
+    if (!now) return modal.close();
+    const here = now.node || 'host';
+    const want = select.value;
+    select.replaceChildren(
+      ...(here === 'host' ? [] : [h('option', { value: 'host' }, 'This office’s machine')]),
+      ...store.nodes.filter((n) => n.name !== here).map((n) => h('option', { value: n.name, disabled: !n.online }, optionLabel(n))),
+    );
+    const open = [...select.options].filter((o) => !o.disabled);
+    select.value = (open.find((o) => o.value === want) ?? open[0])?.value ?? '';
+    busy.classList.toggle('hidden', now.status !== 'working');
+    yes.disabled = now.status === 'working' || !select.value;
+  };
+  const offNodes = store.on('nodes', sync);
+  const offWorkers = store.on('workers', sync);
+  const modal = openModal(form, {
+    onClose: () => {
+      offNodes();
+      offWorkers();
+    },
+  });
+  no.addEventListener('click', () => modal.close());
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const node = select.value;
+    modal.close();
+    onMove(node);
+  });
+  sync();
+  setTimeout(() => select.focus(), 30);
 }
