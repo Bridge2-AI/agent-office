@@ -6,6 +6,8 @@ import { relayUpgrade, tunneledService } from '../relay.js';
 import { sameOrigin } from '../http/util.js';
 import type { Ctx } from '../office/context.js';
 import { onConnection } from './connection.js';
+import { hub } from '../nodes/hub.js';
+import { NODE_PATH } from '../nodes/wire.js';
 
 function refuseUpgrade(socket: Duplex) {
   socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
@@ -33,6 +35,7 @@ export function acceptWebSockets(ctx: Ctx, server: http.Server | https.Server) {
       socket.destroy();
       return;
     }
+    if (url.pathname === NODE_PATH) return hub.upgrade(req, socket, head);
     const session = url.pathname === '/ws' && sameOrigin(req, cfg) ? auth.fromRequest(req) : undefined;
     if (!session) return refuseUpgrade(socket);
     wss.handleUpgrade(req, socket, head, (ws) => onConnection(ctx, ws, url, session));

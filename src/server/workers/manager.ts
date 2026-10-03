@@ -9,7 +9,8 @@ import type { PromptSource } from '../prompts.js';
 import type { GhAs } from '../signins.js';
 import type { ServiceOwner } from '../services.js';
 import { addUsage, newTracker, scanTracker, trackerUsage, zeroUsage, type Ledger } from '../usage.js';
-import { PtyHost, SCROLLBACK, type Adopted, type Pty } from '../ptys.js';
+import { SCROLLBACK, type Adopted, type Pty } from '../ptys.js';
+import { NodeRouter } from '../nodes/router.js';
 import { configuredProvider, providerCommand, validateWorkerEffort, validateWorkerModel } from '../agents.js';
 import { ScrollbackStore, searchTerminal, terminalTail } from '../history.js';
 import { DSH_PROFILE_DEFAULT } from '../dsh.js';
@@ -64,7 +65,7 @@ export class WorkerManager {
   private prs: WorkerPrs;
   private usageTimer: NodeJS.Timeout;
   /** Runs the workers' terminals outside the office, so they outlive a restart of it (see ptys.ts). */
-  private host: PtyHost;
+  private host: NodeRouter;
   /** Each worker's terminal on disk, so a restart doesn't wipe it (see history.ts). */
   private scrollback: ScrollbackStore;
   private drops: DropStore;
@@ -121,7 +122,7 @@ export class WorkerManager {
     this.tasks = new WorkerTasks(this.ctx, claude, childEnv());
     this.worktrees = new WorkerTrees(this.ctx);
     this.prs = new WorkerPrs(this.ctx);
-    this.host = new PtyHost(dataDir, () => this.events.toast("The workers' terminal host stopped — resuming them", 'warn'));
+    this.host = new NodeRouter(dataDir, () => this.events.toast("The workers' terminal host stopped — resuming them", 'warn'), this);
     this.scrollback = new ScrollbackStore(dataDir);
     this.drops = new DropStore(dataDir);
     restoreWorkers(this.statePath, this.workers, this.defaultProvider, (deskId) => this.deskOccupied(deskId));
@@ -630,8 +631,6 @@ export class WorkerManager {
     if (keep) this.host.detach();
     else this.host.stop();
   }
-
-  // ---------------------------------------------------------------------------
 
   private launch(w: Worker, prompt: string | undefined, resumeSessionId: string | undefined) {
     const { info } = w;

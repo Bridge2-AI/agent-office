@@ -5,6 +5,7 @@ import { store } from '../state';
 import { providerPicker, type ProviderPicker } from './provider';
 import { repoPicker } from './prompt';
 import { dictateField } from './dictate';
+import { nodePicker } from './nodes';
 
 // Send a prompt about an issue or PR to a worker: a new one at a free desk, or one already sitting
 // at a desk (it lands in their input box, queued if they're busy).
@@ -32,8 +33,8 @@ export interface AskOptions {
   providerOption?: boolean;
   /** Other floors' projects a new worker in its own worktree can work in too (see WorkerInfo.repos). */
   repoOptions?: { id: string; name: string }[];
-  /** `to` is a worker id, or null for a new worker. */
-  onSubmit(prompt: string, to: string | null, worktree: boolean, provider?: AgentProvider, model?: string, effort?: AgentEffort, repos?: string[]): void;
+  /** `to` is a worker id, or null for a new worker; `node` is the machine a new one runs on (see nodePicker), none for Auto. */
+  onSubmit(prompt: string, to: string | null, worktree: boolean, provider?: AgentProvider, model?: string, effort?: AgentEffort, repos?: string[], node?: string): void;
 }
 
 // Shared with the hire prompt, so the choice sticks either way.
@@ -51,6 +52,7 @@ export function openAsk(opts: AskOptions) {
   }
   const wtRow = h('label.ask-wt', { for: 'ask-wt', title: 'Isolate the new worker on its own branch so parallel workers never collide' }, wtBox, '🌿 Work in its own git worktree & branch');
   const repos = repoPicker(opts.worktreeOption ? opts.repoOptions : undefined, wtBox);
+  const node = opts.worktreeOption ? nodePicker(wtBox) : null;
   const provider: ProviderPicker | null = opts.providerOption ? providerPicker(store.project, 'ask-provider') : null;
   const submit = h('button.btn.primary', { type: 'submit' });
 
@@ -60,6 +62,7 @@ export function openAsk(opts: AskOptions) {
     for (const b of choices.children) b.classList.toggle('on', (b as HTMLElement).dataset.to === (id ?? ''));
     wtRow.classList.toggle('hidden', !!id || !opts.worktreeOption);
     repos.element?.classList.toggle('hidden', !!id);
+    node?.element?.classList.toggle('hidden', !!id);
     provider?.element.classList.toggle('hidden', !!id);
     submit.textContent = id ? 'Send ✨' : 'Hire & start';
   };
@@ -84,6 +87,7 @@ export function openAsk(opts: AskOptions) {
       provider?.element ?? null,
       wtRow,
       repos.element,
+      node?.element ?? null,
     ),
     h('footer', {}, h('span.grow', {}, 'Enter to send · Shift+Enter for a new line'), cancel, submit),
   ) as HTMLFormElement;
@@ -115,6 +119,7 @@ export function openAsk(opts: AskOptions) {
       !to ? provider?.model() : undefined,
       !to ? provider?.effort() : undefined,
       !to && opts.worktreeOption && wtBox.checked ? repos.value() : undefined,
+      !to ? node?.value() : undefined,
     );
   };
   form.addEventListener('submit', (e) => {

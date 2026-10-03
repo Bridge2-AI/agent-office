@@ -56,7 +56,7 @@ export function installHerald(ctx: Ctx, parts: Pick<Parts, 'place' | 'you' | 'ac
         const deskId = views.heraldSeat();
         if (!deskId) return toast('Every seat at the tables is taken now', 'warn');
         views.heraldHires.set(deskId, { floor: store.floor, at: performance.now() });
-        actions.hire(deskId, text || undefined, o.worktree, o.provider, o.model, o.effort, undefined, o.repos, 'herald');
+        actions.hire(deskId, text || undefined, o.worktree, o.provider, o.model, o.effort, undefined, o.repos, 'herald', o.node);
       },
     });
   }

@@ -16,6 +16,7 @@ import { requestHandler } from './http/router.js';
 import { routes } from './http/routes/index.js';
 import { startHookServer } from './hooks/server.js';
 import { acceptWebSockets } from './ws/upgrade.js';
+import { hub } from './nodes/hub.js';
 
 /** What a test can set about how the office starts: the client bundle it serves, instead of the built one. */
 export interface StartOptions {
@@ -31,6 +32,7 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
   Object.assign(ctx, messaging(ctx), floorHelpers(ctx), people(ctx), navigation(ctx), gates(ctx));
   Object.assign(ctx, createCore(ctx, cfg, publicDir));
   const { hookServer, hookPort } = await startHookServer(ctx);
+  hub.init(cfg.dataDir, hookPort, (text) => ctx.broadcast({ t: 'toast', text, level: 'info' }), () => ctx.broadcast({ t: 'nodes', nodes: hub.list() }));
   Object.assign(ctx, createServices(ctx));
   Object.assign(ctx, await openFloors(ctx, hookPort));
   Object.assign(ctx, createLateServices(ctx));
@@ -64,6 +66,7 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
     ctx.sky.stop();
     ctx.themes.stop();
     for (const f of ctx.floors.values()) f.shutdown(keep);
+    hub.shutdown();
     ctx.building.shutdown(keep);
     ctx.ledger.flush();
     ctx.limits.close();
