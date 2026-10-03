@@ -4,7 +4,7 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -22,6 +22,8 @@ let node: ChildProcess | undefined;
 let nodeLog = '';
 let base = '';
 let dataDir = '';
+let cfg: ReturnType<typeof loadConfig>;
+let publicDir = '';
 let ws: WebSocket;
 const inbox: ServerMsg[] = [];
 const PASSWORD = 'nodes-test';
@@ -49,13 +51,25 @@ async function until<T>(what: string, check: () => T | undefined, ms = 20_000): 
 
 const take = <T extends ServerMsg['t']>(t: T, ok: (m: Msg<T>) => boolean = () => true) => until(t, () => inbox.find((m) => m.t === t && ok(m as Msg<T>)) as Msg<T> | undefined);
 
+/** A browser's WebSocket, signed in, with everything it's sent collected in `inbox`. */
+async function signIn() {
+  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: PASSWORD }) });
+  const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0];
+  ws = new WebSocket(`${base.replace('http', 'ws')}/ws`, { headers: { cookie, origin: base } });
+  ws.on('message', (raw) => inbox.push(JSON.parse(raw.toString())));
+  await new Promise((resolve, reject) => {
+    ws.once('open', resolve);
+    ws.once('error', reject);
+  });
+}
+
 before(async () => {
   tmp = mkdtempSync(path.join(tmpdir(), 'agent-office-nodes-'));
   const git = (args: string[], cwd: string) => execFileSync('git', args, { cwd, stdio: 'ignore' });
   const home = path.join(tmp, 'home');
   const origin = path.join(tmp, 'remote', 'origin.git');
   const project = path.join(tmp, 'project');
-  const publicDir = path.join(tmp, 'public');
+  publicDir = path.join(tmp, 'public');
   const bin = path.join(tmp, 'bin');
   for (const d of [home, origin, publicDir, path.join(publicDir, 'assets'), bin]) mkdirSync(d, { recursive: true });
   git(['init', '-q', '--bare', '-b', 'main'], origin);
@@ -72,7 +86,7 @@ before(async () => {
 
   for (const k of Object.keys(process.env)) if (k.startsWith('AGENT_OFFICE_')) delete process.env[k];
   const port = await freePort();
-  const cfg = loadConfig([project, '--home', home, '--projects', path.join(tmp, 'projects'), '--port', String(port), '--password', PASSWORD, '--no-open', '--weather', 'clear', '--agent', agent]);
+  cfg = loadConfig([project, '--home', home, '--projects', path.join(tmp, 'projects'), '--port', String(port), '--password', PASSWORD, '--no-open', '--weather', 'clear', '--agent', agent]);
   office = await startServer(cfg, { publicDir });
   base = `http://127.0.0.1:${port}`;
 
@@ -83,26 +97,22 @@ before(async () => {
   node.stdout!.on('data', (d) => (nodeLog += d));
   node.stderr!.on('data', (d) => (nodeLog += d));
 
-  const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: PASSWORD }) });
-  const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0];
-  ws = new WebSocket(`${base.replace('http', 'ws')}/ws`, { headers: { cookie, origin: base } });
-  ws.on('message', (raw) => inbox.push(JSON.parse(raw.toString())));
-  await new Promise((resolve, reject) => {
-    ws.once('open', resolve);
-    ws.once('error', reject);
-  });
+  await signIn();
 });
 
 after(async () => {
   ws?.close();
-  node?.kill();
+  // The office first: its stop reaches the node's terminal host while the node is still connected.
   office?.shutdown();
-  // The node's terminal host ends its terminals once the node's office link is gone for good; don't wait on it.
-  await new Promise((r) => setTimeout(r, 200));
+  await new Promise((r) => setTimeout(r, 300));
+  node?.kill();
   if (tmp) rmSync(tmp, { recursive: true, force: true });
 });
 
-test('a worker pinned to a node runs there and its terminal works from the office', async () => {
+// Terminals run in a host process of their own, which Windows doesn't have (see PtyHost.open).
+const skip = process.platform === 'win32';
+
+test('a worker pinned to a node runs there and its terminal works from the office', { skip }, async () => {
   await take('welcome');
   // The node joined, cloned the project and has its terminal host up for this floor.
   await take('nodes', (m) => m.nodes.some((n) => n.name === 'lent' && n.online && !!n.stats));
@@ -116,7 +126,7 @@ test('a worker pinned to a node runs there and its terminal works from the offic
   // It ran on the node, in the node's own worktree of the project.
   const where = path.join(tmp, 'node', 'remote', 'origin', worker.worktree!.path);
   const ran = await until('the worker to run on the node', () => existsSync(path.join(where, '.node-ran')) && readFileSync(path.join(where, '.node-ran'), 'utf8').trim());
-  assert.equal(ran, where);
+  assert.equal(ran, realpathSync(where));
   assert.equal(execFileSync('git', ['branch', '--show-current'], { cwd: where, encoding: 'utf8' }).trim(), worker.worktree!.branch);
   // office-workers reached the office through the node's relay, with the worker's own token.
   const listed = await until('office-workers to answer', () => {
@@ -136,7 +146,7 @@ test('a worker pinned to a node runs there and its terminal works from the offic
   await take('worker.remove', (m) => m.workerId === worker.id);
 });
 
-test('Auto puts a worktree worker on the machine with the most memory to spare, and the rest on the office', async () => {
+test('Auto puts a worktree worker on the machine with the most memory to spare, and the rest on the office', { skip }, async () => {
   // Same machine here, but the office keeps memory back for itself: the node has more to spare.
   ws.send(JSON.stringify({ t: 'worker.spawn', deskId: 'desk-2', prompt: 'auto', worktree: true }));
   const auto = await take('worker.update', (m) => m.worker.deskId === 'desk-2' && m.worker.node !== undefined);
@@ -146,7 +156,7 @@ test('Auto puts a worktree worker on the machine with the most memory to spare, 
   assert.equal(here.worker.node, '', 'only a worker in its own worktree can run elsewhere');
 });
 
-test("a node that restarts gets its workers back", async () => {
+test("a node that restarts gets its workers back", { skip }, async () => {
   const before = await take('worker.update', (m) => m.worker.deskId === 'desk-2' && m.worker.status !== 'starting');
   const where = path.join(tmp, 'node', 'remote', 'origin', before.worker.worktree!.path);
   await until('the auto worker to run', () => existsSync(path.join(where, '.node-ran')));
@@ -163,4 +173,31 @@ test("a node that restarts gets its workers back", async () => {
   await take('worker.update', (m) => m.worker.id === before.worker.id && m.worker.node === 'lent' && m.worker.status !== 'exited');
   const pids = readFileSync(path.join(where, '.node-starts'), 'utf8').trim().split('\n').map((l) => l.split(' ')[2]);
   assert.equal(new Set(pids).size, 2, 'a new process, not the one from before the node went down');
+});
+
+test('an office that restarts picks its workers on a node back up, still running', { skip }, async () => {
+  const w = (await take('worker.update', (m) => m.worker.deskId === 'desk-2' && m.worker.node === 'lent')).worker;
+  const where = path.join(tmp, 'node', 'remote', 'origin', w.worktree!.path);
+  const starts = () => readFileSync(path.join(where, '.node-starts'), 'utf8').trim().split('\n').length;
+  const before = starts();
+  ws.close();
+  office.shutdown(true); // a restart, as an upgrade does
+  for (let i = 0; ; i++) {
+    try {
+      office = await startServer(cfg, { publicDir });
+      break;
+    } catch (err) {
+      if (i > 20) throw err; // the old one is still letting go of the port
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+  inbox.length = 0;
+  await signIn();
+  await take('nodes', (m) => m.nodes.some((n) => n.name === 'lent' && n.online));
+  // Its terminal is the same process, picked back up: typing still reaches it.
+  ws.send(JSON.stringify({ t: 'worker.attach', workerId: w.id }));
+  await take('term.snapshot', (m) => m.workerId === w.id);
+  ws.send(JSON.stringify({ t: 'term.input', workerId: w.id, data: 'after-restart\r' }));
+  await take('term.data', (m) => m.workerId === w.id && m.data.includes('after-restart'));
+  assert.equal(starts(), before, 'not started again');
 });

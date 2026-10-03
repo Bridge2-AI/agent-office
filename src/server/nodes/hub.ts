@@ -16,8 +16,8 @@ export interface Routed {
   readonly ch: string;
   readonly dir: string;
   origin(): string | undefined;
-  /** A node's terminal host for this floor came up while the office was already running. */
-  nodeUp(node: string, host: PtyHost): void;
+  /** A node's terminal host for this floor came up, with `sessions` still running there. */
+  nodeUp(node: string, host: PtyHost, sessions: string[]): void;
 }
 
 interface Channel {
@@ -266,7 +266,7 @@ class Hub {
         const host = new PtyHost(m.ch, () => this.notify(`🖥️ ${s.name}'s terminals stopped: its workers are resuming`));
         host.use(duplex, m.sessions);
         Object.assign(c, { host, duplex, sessions: m.sessions, error: undefined });
-        r.nodeUp(s.name, host);
+        r.nodeUp(s.name, host, m.sessions);
         this.changed();
         break;
       }

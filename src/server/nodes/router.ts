@@ -1,15 +1,16 @@
 import { execFileSync } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { WorkerInfo } from '../../shared/protocol.js';
 import { DESK_BY_ID } from '../../shared/layout.js';
 import { PtyHost, type Adopted, type Pty, type SpawnOpts } from '../ptys.js';
 import { childEnv } from '../workers/env.js';
 import { HOST, hub, type Routed } from './hub.js';
+import { PendingPty } from './pending.js';
+import { GRACE_MS } from './wire.js';
 
 /** Sign-ins that are the office's (or an account's on it): a node's workers use its own user's instead. */
 const OFFICE_ONLY = new Set(['PATH', 'CLAUDE_CONFIG_DIR', 'GH_CONFIG_DIR', 'GIT_CONFIG_GLOBAL', 'ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN']);
-/** How long the office, starting up, waits for a node to come back with a worker's terminal. */
-const ATTACH_WAIT_MS = 10_000;
 /** A worker hired longer ago than this was placed before nodes existed: it stays where it is. */
 const PLACE_WINDOW_MS = 60_000;
 
@@ -29,8 +30,12 @@ export class NodeRouter extends PtyHost implements Routed {
   readonly ch: string;
   readonly dir: string;
   private remote?: string | null;
-  /** Past the office's start-up: a node coming back now has its workers resumed rather than attached. */
+  /** Past the office's start-up: what a node coming back has that nobody claimed is ended. */
   private started = false;
+  /** Which node each terminal there runs on, kept on disk for the next office (see attach). */
+  private onNode: Record<string, string>;
+  private pending = new Map<string, PendingPty>();
+  private onNodeFile: string;
 
   constructor(
     dataDir: string,
@@ -40,6 +45,12 @@ export class NodeRouter extends PtyHost implements Routed {
     super(dataDir, onLost);
     this.ch = dataDir;
     this.dir = path.dirname(dataDir);
+    this.onNodeFile = path.join(dataDir, 'node-ptys.json');
+    try {
+      this.onNode = JSON.parse(readFileSync(this.onNodeFile, 'utf8'));
+    } catch {
+      this.onNode = {};
+    }
     hub.addRouter(this);
   }
 
@@ -61,19 +72,27 @@ export class NodeRouter extends PtyHost implements Routed {
     const host = hub.hostOn(node, this.ch);
     if (!host) throw new Error(`it runs on ${node}, which isn't connected to the office right now — it starts again when ${node} is back`);
     hub.placed(node);
-    return host.spawn(remoteOpts(opts, info));
+    const p = host.spawn(remoteOpts(opts, info));
+    this.remember(p, node);
+    return p;
   }
 
+  /**
+   * A terminal from before the office restarted. One on a node can't be asked for yet (the office
+   * isn't open to its nodes until its workers are back), so its worker gets a PendingPty, joined to
+   * the real one once the node is back (nodeUp).
+   */
   override async attach(id: string): Promise<Adopted | undefined> {
     const local = await super.attach(id);
-    if (local) return local;
-    const deadline = Date.now() + ATTACH_WAIT_MS;
-    for (;;) {
-      const held = hub.holder(this.ch, id);
-      if (held) return held.host.attach(id);
-      if (Date.now() > deadline) return undefined;
-      await new Promise((r) => setTimeout(r, 250));
-    }
+    const node = this.onNode[id];
+    if (local || !node) return local;
+    const held = hub.holder(this.ch, id);
+    if (held) return held.host.attach(id);
+    const p = new PendingPty(id, GRACE_MS);
+    this.pending.set(id, p);
+    p.onExit(() => this.pending.delete(id));
+    this.remember(p, node);
+    return p.adopted();
   }
 
   override killUnclaimed() {
@@ -84,6 +103,7 @@ export class NodeRouter extends PtyHost implements Routed {
 
   override detach() {
     super.detach();
+    for (const host of hub.hosts(this.ch)) host.detach();
     hub.removeRouter(this);
   }
 
@@ -93,10 +113,34 @@ export class NodeRouter extends PtyHost implements Routed {
     hub.removeRouter(this);
   }
 
-  nodeUp(node: string, host: PtyHost) {
+  /** A node's terminal host for this floor is up, with `sessions` still running there. */
+  nodeUp(node: string, host: PtyHost, sessions: string[]) {
+    for (const [id, p] of this.pending) {
+      if (this.onNode[id] !== node) continue;
+      if (sessions.includes(id)) void host.attach(id).then((a) => (a ? p.bind(a) : p.lose()));
+      else p.lose();
+    }
     if (!this.started) return; // the office's start-up attaches what's still running there
     host.killUnclaimed();
     for (const w of this.workers.list()) if (w.node === node && w.status === 'exited') this.workers.resume(w.id);
+  }
+
+  private remember(p: Pty, node: string) {
+    if (!p.id) return;
+    this.onNode[p.id] = node;
+    this.saveOnNode();
+    p.onExit(() => {
+      delete this.onNode[p.id!];
+      this.saveOnNode();
+    });
+  }
+
+  private saveOnNode() {
+    try {
+      writeFileSync(this.onNodeFile, JSON.stringify(this.onNode), { mode: 0o600 });
+    } catch {
+      // the next office resumes these workers instead of picking them up
+    }
   }
 
   /** Which node a worker runs on, deciding it the first time it starts; undefined is the office's own machine. */

@@ -18,9 +18,9 @@ It prints the command to run on that machine, with a token that's only shown onc
 agent-office node --office https://192.168.1.20:4600 --name alice-pc --token 3f9c… --pin sha256:AB:CD:…
 ```
 
-On the node, install the **same version** of agent-office, sign in to `claude` and `gh` as yourself, and run that command. Leave it running. The office shows a toast when it joins, and **☰ → 🖥️ Machines** lists it with its free memory, load and workers.
+On the node (Linux, macOS, or WSL on Windows: like the office, a node needs a Unix terminal host), install the **same version** of agent-office, sign in to `claude` and `gh` as yourself, and run that command. Leave it running. The office shows a toast when it joins, and **☰ → 🖥️ Machines** lists it with its free memory, load and workers.
 
-- `--office` is how the node reaches the office. On a LAN, the office has to listen there too: start it with `--host 0.0.0.0 --self-signed`. With `--self-signed`, `nodes add` adds `--pin`, the fingerprint of the office's certificate: the node checks it before it sends its token, so nobody in between can pose as the office. Over plain http the node warns you that terminals cross the network unencrypted. An office on [Tailscale](aws.md#tailscale) or a real domain needs neither.
+- `--office` is how the node reaches the office. On a LAN, the office has to listen there too: start it with `--host 0.0.0.0 --self-signed`. An office in WSL also needs WSL's mirrored networking and a Windows firewall rule for its port before other machines can reach it; Tailscale avoids both. With `--self-signed`, `nodes add` adds `--pin`, the fingerprint of the office's certificate: the node checks it before it sends its token, so nobody in between can pose as the office. Over plain http the node warns you that terminals cross the network unencrypted. An office on [Tailscale](aws.md#tailscale) or a real domain needs neither.
 - `--projects <dir>` is where the node clones the office's projects (default `~/agent-office-node`). Keep it apart from any office of your own on that machine.
 - `--max-workers <n>` caps how many workers it takes at once.
 
@@ -43,7 +43,9 @@ When a node joins, the office tells it about every floor. The node clones each p
 - **your sign-ins**: the node's own `claude`, `gh` and git config, never the office's. Its environment is the node's, plus what the office sets for a worker (its id, its hook token, the model and so on);
 - **the office's hooks and `office-workers`**, which reach the office through the node's connection: status, needs-input alerts and `office-workers list|hire|tell|home` work as on the office.
 
-If the node's connection drops (Wi-Fi, a laptop lid), what was in flight is resent when it comes back, within two minutes, and nothing is lost. If it's gone for longer, or `agent-office node` itself restarts, its workers start again on it when it's back, resuming their conversations. A node that's away shows its workers asleep; walking onto the floor tries to wake them and says the node isn't connected.
+Claude asks once whether to trust the node's clone of a project: if a node's worker shows as needing you right after it starts, open its terminal and accept.
+
+If the node's connection drops (Wi-Fi, a laptop lid), what was in flight is resent when it comes back, within two minutes, and nothing is lost. When the office restarts (an upgrade, say), a node's workers keep running and the office picks them back up as the node reconnects. If it's gone for longer, or `agent-office node` itself restarts, its workers start again on it when it's back, resuming their conversations. A node that's away shows its workers asleep; walking onto the floor tries to wake them and says the node isn't connected.
 
 ## Not on a node yet
 
