@@ -4,6 +4,7 @@ import { h, openModal } from './dom';
 import { store } from '../state';
 import { providerPicker, type ProviderPicker } from './provider';
 import { dictateField } from './dictate';
+import { nodePicker } from './nodes';
 
 export interface PromptOptions {
   title: string;
@@ -21,7 +22,8 @@ export interface PromptOptions {
   providerOption?: boolean;
   /** Other floors' projects a new worker in its own worktree can work in too (see WorkerInfo.repos). */
   repoOptions?: { id: string; name: string }[];
-  onSubmit(text: string, opts: { worktree: boolean; provider?: AgentProvider; model?: string; effort?: AgentEffort; repos: string[] }): void;
+  /** `node`: the machine it runs on (see nodePicker); none is Auto. */
+  onSubmit(text: string, opts: { worktree: boolean; provider?: AgentProvider; model?: string; effort?: AgentEffort; repos: string[]; node?: string }): void;
 }
 
 const WT_KEY = 'agent-office.worktree';
@@ -41,7 +43,7 @@ export function worktreePref(): boolean {
  */
 export function repoPicker(options: { id: string; name: string }[] | undefined, wtBox: HTMLInputElement): { element: HTMLElement | null; value(): string[] } {
   const picks = (options ?? []).map((r) => {
-    const box = h('input', { type: 'checkbox', value: r.id, onchange: () => box.checked && (wtBox.checked = true) }) as HTMLInputElement;
+    const box = h('input', { type: 'checkbox', value: r.id, onchange: () => box.checked && !wtBox.checked && ((wtBox.checked = true), wtBox.dispatchEvent(new Event('change'))) }) as HTMLInputElement;
     return { id: r.id, box, el: h('label.repo-pick', { title: `A worktree of ${r.name} too, on the same branch, with a pull request of its own` }, box, r.name) };
   });
   if (!picks.length) return { element: null, value: () => [] };
@@ -68,6 +70,7 @@ export function openPrompt(opts: PromptOptions) {
     )
     : null;
   const repos = repoPicker(opts.worktreeOption ? opts.repoOptions : undefined, wtBox);
+  const node = opts.worktreeOption ? nodePicker(wtBox) : null;
   const provider: ProviderPicker | null = opts.providerOption ? providerPicker(store.project, 'prompt-provider') : null;
   const submit = h('button.btn.primary', { type: 'submit' }, opts.submitLabel ?? 'Send ✨');
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');
@@ -75,7 +78,7 @@ export function openPrompt(opts: PromptOptions) {
     'form.modal',
     { role: 'dialog', 'aria-label': opts.title },
     h('header', {}, h('h2', {}, opts.title)),
-    h('div.body', {}, opts.warning ? h('p.setting-note.bad', { style: 'margin:0 0 10px', role: 'alert' }, opts.warning) : null, opts.subtitle ? h('p', { style: 'margin:0 0 10px;font-weight:700;color:var(--muted)' }, opts.subtitle) : null, dictateField(ta), provider?.element ?? null, wtRow, repos.element),
+    h('div.body', {}, opts.warning ? h('p.setting-note.bad', { style: 'margin:0 0 10px', role: 'alert' }, opts.warning) : null, opts.subtitle ? h('p', { style: 'margin:0 0 10px;font-weight:700;color:var(--muted)' }, opts.subtitle) : null, dictateField(ta), provider?.element ?? null, wtRow, repos.element, node?.element ?? null),
     h('footer', {}, h('span.grow', {}, 'Enter to send · Shift+Enter for a new line'), cancel, submit),
   ) as HTMLFormElement;
   form.noValidate = true;
@@ -98,7 +101,7 @@ export function openPrompt(opts: PromptOptions) {
       }
     }
     const worktree = !!opts.worktreeOption && wtBox.checked;
-    opts.onSubmit(text, { worktree, provider: provider?.value(), model: provider?.model(), effort: provider?.effort(), repos: worktree ? repos.value() : [] });
+    opts.onSubmit(text, { worktree, provider: provider?.value(), model: provider?.model(), effort: provider?.effort(), repos: worktree ? repos.value() : [], node: node?.value() });
   };
   form.addEventListener('submit', (e) => {
     e.preventDefault();

@@ -157,6 +157,7 @@ function workerCard(w: WorkerInfo): HTMLElement {
     w.kind === 'agent' ? `⚙️ ${providerLabel(w.provider, store.project)}${badge ? ` · ${badge}` : ''}` : '🐚 shell',
     desk && (desk.station ? `📌 ${desk.label}` : desk.label),
     w.worktree && `🌿 ${w.worktree.branch}`,
+    w.node && `🖥️ ${w.node}`,
     w.pr && `🔀 PR #${w.pr.number}`,
     w.lastInput && `⌨️ ${w.lastInput.by} ${timeAgo(w.lastInput.at)}`,
   ].filter(Boolean);
@@ -256,8 +257,8 @@ function promptWorker(id: string) {
 }
 
 // ---- New work: a prompt for a worker who's here, or a new one at a free desk -------------------
-function hire(deskId: string, prompt: string, worktree: boolean, provider?: AgentProvider, model?: string, effort?: AgentEffort, repos?: string[], issue?: number) {
-  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort, issue, repos: repos?.length ? repos : undefined });
+function hire(deskId: string, prompt: string, worktree: boolean, provider?: AgentProvider, model?: string, effort?: AgentEffort, repos?: string[], issue?: number, node?: string) {
+  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort, issue, repos: repos?.length ? repos : undefined, node: node || undefined });
 }
 
 /** With `issue`, the worker the prompt goes to takes that GitHub issue. */
@@ -275,9 +276,9 @@ function sendToWorker(title: string, text: { context?: string; initial?: string 
     worktreeOption: !!store.project.branch,
     providerOption: true,
     repoOptions: repoChoices(),
-    onSubmit: (prompt, to, worktree, provider, model, effort, repos) => {
+    onSubmit: (prompt, to, worktree, provider, model, effort, repos, node) => {
       if (to) net.send({ t: 'worker.prompt', workerId: to, prompt, issue });
-      else if (desk) hire(desk, prompt, worktree, provider, model, effort, repos, issue);
+      else if (desk) hire(desk, prompt, worktree, provider, model, effort, repos, issue, node);
     },
   });
 }

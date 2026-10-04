@@ -59,6 +59,8 @@ export interface WorkerInfo {
    * home. `branch` says where its branch still is: in the project, only on origin, or nowhere.
    */
   lost?: { branch: LostBranch };
+  /** The node (a teammate's machine, see docs/nodes.md) it runs on; '' or missing: the office's own. */
+  node?: string;
   /** Its pull request: opened from this desk for the worktree branch (see 'worker.pr'), by itself with `gh pr create`, or said to be its own. */
   pr?: { number: number; url: string };
   /** The pull requests it opened itself before `pr`: while one of them is open, its work hasn't all landed. */
@@ -177,7 +179,8 @@ export interface JailState {
 export type WorkerClientMsg =
   /** With `issue`, the worker is there for that GitHub issue: it moves to In progress at once, is assigned on GitHub (which keeps it there) and taken off the queue. */
   /** With `repos` (other floors' ids), the worker works in their repositories too, each in a worktree of its own (see WorkerInfo.repos). */
-  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort; issue?: number; repos?: string[]; via?: 'herald' }
+  /** `node`: the machine it runs on (a node's name, or 'host' for the office's own); none is Auto (see docs/nodes.md). */
+  | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort; issue?: number; repos?: string[]; via?: 'herald'; node?: string }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
   /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */

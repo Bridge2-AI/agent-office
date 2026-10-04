@@ -18,6 +18,14 @@ if (argv[0] === 'setup') {
   const { setupCommand } = await import('./setup.js');
   process.exit(await setupCommand(argv.slice(1)));
 }
+if (argv[0] === 'node') {
+  const { nodeCommand } = await import('./nodes/agent.js');
+  process.exit(await nodeCommand(argv.slice(1)));
+}
+if (argv[0] === 'nodes') {
+  const { nodesCommand } = await import('./nodes/cli.js');
+  process.exit(nodesCommand(argv.slice(1)));
+}
 if (argv[0] === 'tunnel') {
   const { tunnelCommand } = await import('./tunnel/index.js');
   process.exit(await tunnelCommand(argv.slice(1)));

@@ -1,0 +1,11 @@
+/* Which machine a new worker runs on, in the hire dialogs (ui/nodes.ts). */
+.modal label.node-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 0; }
+.node-pick select { min-width: 0; max-width: 100%; padding: 6px 9px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; font-weight: 800; }
+.node-pick select:disabled { opacity: .55; cursor: not-allowed; }
+.node-pick small { color: var(--muted); font-size: 12px; font-weight: 700; }
+
+/* The 🖥️ Machines window: a list to read, not to click. */
+.svc-list.node-list li { cursor: default; }
+.svc-list.node-list li:hover { background: #fff; }
+.svc-list.node-list .dot { background: var(--muted); }
+.svc-list.node-list .dot.on { background: var(--good); }

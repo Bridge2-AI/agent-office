@@ -3,9 +3,11 @@ import { spawn as spawnProcess } from 'node:child_process';
 import { closeSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
+import type { Duplex } from 'node:stream';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as pty from '@lydell/node-pty';
+import type { RemoteSpawn } from './nodes/wire.js';
 
 /**
  * Workers' terminals live in a small host process of their own (ptyhost.ts), not in the office.
@@ -27,6 +29,8 @@ export interface SpawnOpts {
   rows: number;
   /** Output from before this process (a restored scrollback), for the host's copy of the screen. */
   prelude?: string;
+  /** Set when it runs on another machine (see nodes/router.ts). */
+  remote?: RemoteSpawn;
 }
 
 export interface PtyExit {
@@ -79,7 +83,7 @@ export type FromHost =
   | { t: 'exit'; id: string; exitCode: number; error?: string };
 
 /** Calls `onMsg` with each newline-delimited JSON message on the socket. */
-export function readMessages(sock: net.Socket, onMsg: (msg: any) => void) {
+export function readMessages(sock: Duplex, onMsg: (msg: any) => void) {
   sock.setEncoding('utf8');
   let buf = '';
   sock.on('data', (chunk: string) => {
@@ -149,7 +153,7 @@ class RemotePty implements Pty {
 }
 
 export class PtyHost {
-  private sock: net.Socket | null = null;
+  private sock: Duplex | null = null;
   private ptys = new Map<string, RemotePty>();
   private attaching = new Map<string, (msg: FromHost | undefined) => void>();
   /** Sessions the host already had when the office connected, not yet claimed by a worker. */
@@ -179,7 +183,15 @@ export class PtyHost {
    * host to be had: terminals then run in-process.
    */
   async connect(): Promise<boolean> {
-    if (process.platform === 'win32') return false;
+    const found = await this.open();
+    if (!found) return false;
+    this.use(found.sock, found.sessions);
+    return true;
+  }
+
+  /** Finds this dataDir's host, or starts one, and hands back its socket without using it. */
+  async open(): Promise<{ sock: net.Socket; sessions: string[] } | undefined> {
+    if (process.platform === 'win32') return undefined;
     try {
       let found = await this.hello();
       if (found && found.version !== PTY_PROTOCOL) {
@@ -199,16 +211,18 @@ export class PtyHost {
           found = await this.hello();
         }
       }
-      if (!found) return false;
-      const { sock, sessions } = found;
-      this.sock = sock;
-      this.unclaimed = new Set(sessions);
-      readMessages(sock, (msg) => this.onMessage(msg as FromHost));
-      sock.on('close', () => this.onClose(sock));
-      return true;
+      return found && { sock: found.sock, sessions: found.sessions };
     } catch {
-      return false;
+      return undefined;
     }
+  }
+
+  /** Runs terminals in the host at the other end of `sock`, which already said it's `ready` with `sessions`. */
+  use(sock: Duplex, sessions: string[]) {
+    this.sock = sock;
+    this.unclaimed = new Set(sessions);
+    readMessages(sock, (msg) => this.onMessage(msg as FromHost));
+    sock.on('close', () => this.onClose(sock));
   }
 
   /** A new terminal: in the host when there is one, else in-process. Throws if it can't start. */
@@ -294,7 +308,7 @@ export class PtyHost {
     }
   }
 
-  private onClose(sock: net.Socket) {
+  private onClose(sock: Duplex) {
     if (this.sock !== sock) return;
     this.sock = null;
     for (const resolve of this.attaching.values()) resolve(undefined);

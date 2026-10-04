@@ -1,6 +1,8 @@
 // Workers at their desks and the board agents at their kiosks: hiring them, their terminals, their
 // worktrees and pull requests.
+import path from 'node:path';
 import { MAX_REPOS, type RepoSource } from '../../workers.js';
+import { hub } from '../../nodes/hub.js';
 import { OPEN_CODE_MODEL_MAX } from '../../../shared/providers.js';
 import { isAgentEffort, isAgentProvider, type WorkerClientMsg } from '../../../shared/protocol.js';
 import { issueNumber, num, str } from '../../office/input.js';
@@ -11,6 +13,7 @@ const CLEANUPS = new Set(['keep', 'worktree', 'all']);
 
 export const workersView: ViewPieces['workers'] = (_ctx, floor) => floor?.workers.list() ?? [];
 export const jailView: ViewPieces['jail'] = (_ctx, floor) => floor?.jail.state() ?? { prisoners: [], bones: 0 };
+export const nodesView: ViewPieces['nodes'] = () => hub.list();
 
 /** The least time between two 'term.typing' notes from one person in one terminal. */
 const TYPING_GAP_MS = 500;
@@ -36,7 +39,10 @@ export const workerHandlers = {
     }
     // A shell is theirs too: `claude auth login` or `gh auth login` typed there signs them in.
     const hire = () => {
+      const ch = path.join(floor.dir, '.agent-office');
+      hub.pin(ch, str(msg.deskId, 32), msg.node === undefined ? undefined : str(msg.node, 64));
       const r = floor.workers.spawn(str(msg.deskId, 32), who, str(msg.prompt, 20000) || undefined, msg.worktree === true, kind, msg.provider, model, effort, undefined, c.accountId, repos, msg.via === 'herald' ? 'herald' : undefined);
+      hub.takePin(ch, str(msg.deskId, 32)); // a hire that failed doesn't leave its pick for the next one
       const issue = kind === 'agent' ? issueNumber(msg.issue) : undefined;
       const across = repos.length ? ` across ${[floor.def.name, ...repos.map((x) => x.name)].join(' + ')}` : '';
       if (typeof r === 'string') ctx.warn(c, r);
