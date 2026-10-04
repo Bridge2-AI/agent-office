@@ -15,6 +15,7 @@ import { engineLabel, providerUsageNote, providerUsageState, providerWaitingLabe
 import { naturalKey } from './termkeys';
 import { termTabs } from './termtabs';
 import { dictateField, dictation } from './dictate';
+import { movable, moveDialog } from './nodes';
 
 /** A line to scroll to once the terminal has loaded: a search hit (see search.ts). */
 export interface TerminalFind {
@@ -126,6 +127,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
     'aria-label': 'Send Esc to the terminal',
   }, '⎋ Esc');
   const changesBtn = h('button.btn', { type: 'button', title: 'What this worker changed: files, diff, commit, open a PR (C at the desk)' }, '🌿 Changes');
+  const moveBtn = h('button.btn', { type: 'button', title: 'Move it to another machine, conversation and all' }, '🖥️ Move to…');
   const closeBtn = h('button.btn.close', { title: 'Leave terminal (Esc or Ctrl+]) · ⎋ Esc or Ctrl+[ sends Esc to the terminal', 'aria-label': 'Close' }, '✕');
   const host = h('div.term-host', { 'data-drop': '📎 Drop screenshots or files here to put them in the terminal' });
   const keys = h('div.term-keys', { role: 'group', 'aria-label': 'Keys' });
@@ -148,7 +150,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   );
   host.append(mic.live);
   // The keypad has an Esc of its own, and a 🎤 on its prompt box.
-  const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, keypad ? null : mic.button, keypad ? null : escBtn, onChanges ? changesBtn : null, closeBtn), tabs.bar, host, tabs.pages, keypad);
+  const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, keypad ? null : mic.button, keypad ? null : escBtn, onChanges ? changesBtn : null, moveBtn, closeBtn), tabs.bar, host, tabs.pages, keypad);
 
   const term = new Terminal({
     fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
@@ -263,6 +265,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
     renderPresence(w);
     const openCode = w.kind === 'agent' && resolvedProvider(w.provider, store.project) === 'opencode';
     modelsBtn.classList.toggle('hidden', !openCode);
+    moveBtn.classList.toggle('hidden', !movable(w));
     modelsBtn.toggleAttribute('disabled', !openCode || !ready || isAsleep(w.status));
     escBtn.toggleAttribute('disabled', !ready || isAsleep(w.status));
     mic.button?.toggleAttribute('disabled', !ready || isAsleep(w.status));
@@ -362,6 +365,15 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   changesBtn.addEventListener('click', () => {
     onChanges?.();
     modal.close();
+  });
+  // It stops here and starts again on the other machine, so the terminal closes once it's sent.
+  moveBtn.addEventListener('click', () => {
+    const w = store.workers.get(workerId);
+    if (w)
+      moveDialog(w, (node) => {
+        net.send({ t: 'worker.move', workerId, node });
+        modal.close();
+      });
   });
 
   term.open(host);

@@ -2,7 +2,7 @@
 // worktrees and pull requests.
 import path from 'node:path';
 import { MAX_REPOS, type RepoSource } from '../../workers.js';
-import { hub } from '../../nodes/hub.js';
+import { HOST, hub } from '../../nodes/hub.js';
 import { OPEN_CODE_MODEL_MAX } from '../../../shared/providers.js';
 import { isAgentEffort, isAgentProvider, type WorkerClientMsg } from '../../../shared/protocol.js';
 import { issueNumber, num, str } from '../../office/input.js';
@@ -56,6 +56,18 @@ export const workerHandlers = {
   'worker.resume'(ctx, c, msg) {
     const w = workerOf(ctx, msg.workerId);
     ctx.warn(c, w ? w.floor.workers.resume(w.wid) : 'No such worker');
+  },
+  'worker.move'(ctx, c, msg) {
+    const w = workerOf(ctx, msg.workerId);
+    const router = w && hub.router(path.join(w.floor.dir, '.agent-office'));
+    if (!w || !router) return;
+    const { floor, info } = w;
+    const to = msg.node === HOST ? '' : str(msg.node, 64);
+    const there = to || "the office's machine";
+    const why = router.cantMove(info.id, to);
+    if (why) return ctx.warn(c, why);
+    ctx.toastFloor(floor, `🖥️ ${c.peer.name} is moving ${info.name} to ${there}`);
+    void router.move(info.id, to).then((err) => (err ? ctx.toastFloor(floor, err, 'warn') : ctx.toastFloor(floor, `🖥️ ${info.name} is on ${there} now, carrying on where it was`)));
   },
   'worker.kill'(ctx, c, msg) {
     const who = c.peer.name;

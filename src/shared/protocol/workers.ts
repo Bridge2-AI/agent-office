@@ -182,6 +182,8 @@ export type WorkerClientMsg =
   /** `node`: the machine it runs on (a node's name, or 'host' for the office's own); none is Auto (see docs/nodes.md). */
   | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort; issue?: number; repos?: string[]; via?: 'herald'; node?: string }
   | { t: 'worker.resume'; workerId: string }
+  /** Move it to another machine, conversation and all (see docs/nodes.md): a node's name, or 'host' for the office's own. */
+  | { t: 'worker.move'; workerId: string; node: string }
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
   /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
   | { t: 'worker.worktree'; workerId: string }

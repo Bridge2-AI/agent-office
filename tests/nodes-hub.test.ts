@@ -274,7 +274,11 @@ test("a floor's router sends a fresh agent in its own worktree to a node, with o
   const opts = await until(() => spawnedThere(w)[0], 'the spawn to reach the node');
   // Not the office's PATH or sign-ins, and not what the node has of its own anyway.
   assert.deepEqual(opts.env, { AGENT_OFFICE_WORKER_ID: w.id, OFFICE_SET: 'this' });
-  assert.deepEqual(opts.remote, { path: `.claude/worktrees/${w.id}`, branch: `office/${w.id}`, base: 'main', from: 'dev', envKeys: ['AGENT_OFFICE_WORKER_ID', 'OFFICE_SET'] });
+  const { officeNode, officeBin, ...remote } = opts.remote!;
+  assert.deepEqual(remote, { path: `.claude/worktrees/${w.id}`, branch: `office/${w.id}`, base: 'main', from: 'dev', envKeys: ['AGENT_OFFICE_WORKER_ID', 'OFFICE_SET'] });
+  // The office's own node and install, for the node to put its own in place of.
+  assert.equal(officeNode, process.execPath);
+  assert.ok(officeBin?.endsWith('bin'));
   assert.deepEqual([opts.file, opts.args, opts.cols, opts.rows], ['claude', ['--resume'], 80, 24]);
   assert.equal(local.length, 0);
 

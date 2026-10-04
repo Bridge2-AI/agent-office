@@ -24,6 +24,7 @@ import { openAsk } from './ui/ask';
 import { openMeeting, type MeetingPreset } from './ui/meeting';
 import { openSignIns } from './ui/signins';
 import { modelBadge, providerLabel } from './ui/provider';
+import { movable, moveDialog } from './ui/nodes';
 import { byUrgency, waitingInOrder, waitingLabel } from './nextup';
 import { askNotifyPermission, DesktopNotifier, notifyPermission, waitingOnSomeone } from './notify';
 import { repoChoices } from './shared/hiring';
@@ -180,6 +181,7 @@ function workerCard(w: WorkerInfo): HTMLElement {
     ),
     // One that's asking something is answered in its terminal, where the question is.
     asleep || w.lost || w.status === 'needs_input' ? null : h('button.btn.lite-say', { type: 'button', title: `Send ${w.name} a prompt`, 'aria-label': `Send ${w.name} a prompt`, onclick: () => promptWorker(w.id) }, '✍️'),
+    movable(w) ? h('button.btn.lite-say', { type: 'button', title: `Move ${w.name} to another machine`, 'aria-label': `Move ${w.name} to another machine`, onclick: () => moveDialog(w, (node) => net.send({ t: 'worker.move', workerId: w.id, node })) }, '🖥️') : null,
   );
 }
 

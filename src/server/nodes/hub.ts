@@ -8,7 +8,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type { NodeView } from '../../shared/protocol.js';
 import { PtyHost } from '../ptys.js';
 import { Link } from './link.js';
-import { GRACE_MS, NODE_PROTOCOL, type FromNode, type Hello, type NodeStats, type ToNode } from './wire.js';
+import { GRACE_MS, NODE_PROTOCOL, type FromNode, type Hello, type NodeCall, type NodeStats, type ToNode } from './wire.js';
 
 /** What a floor's router gives the hub (see NodeRouter). */
 export interface Routed {
@@ -18,6 +18,9 @@ export interface Routed {
   origin(): string | undefined;
   /** A node's terminal host for this floor came up, with `sessions` still running there. */
   nodeUp(node: string, host: PtyHost, sessions: string[]): void;
+  /** Moves a worker to `to` (a node, or '' for the office's machine); says what went wrong. */
+  move(workerId: string, to: string): Promise<string | undefined>;
+  cantMove(workerId: string, to: string): string | undefined;
 }
 
 interface Channel {
@@ -37,6 +40,8 @@ interface Session {
   channels: Map<string, Channel>;
   /** When workers were last placed here, so a burst of hires spreads before the stats catch up. */
   placed: number[];
+  /** What the office has asked of it and is waiting on (see call). */
+  calls: Map<number, { resolve: (v: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>;
 }
 
 interface Registered {
@@ -66,6 +71,7 @@ class Hub {
   private sessions = new Map<string, Session>();
   private routers = new Map<string, Routed>();
   private pins = new Map<string, string>();
+  private nextCall = 0;
   /** Its own, for a terminal's snapshot can be far bigger than anything a browser sends. */
   private wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 * 1024 });
 
@@ -116,6 +122,10 @@ class Hub {
     return pin;
   }
 
+  online(node: string): boolean {
+    return !!this.sessions.get(node)?.link.connected;
+  }
+
   /** The terminal host on `node` for floor `ch`, if it's there to take a worker now. */
   hostOn(node: string, ch: string): PtyHost | undefined {
     const s = this.sessions.get(node);
@@ -129,6 +139,30 @@ class Hub {
       if (c?.host && c.sessions.includes(id)) return { node: s.name, host: c.host };
     }
     return undefined;
+  }
+
+  /** The office's own data dir (where accounts keep their sign-ins, see signins.ts). */
+  get officeData(): string | undefined {
+    return this.file && path.dirname(this.file);
+  }
+
+  router(ch: string): Routed | undefined {
+    return this.routers.get(ch);
+  }
+
+  /** Asks `node` to do something for a move (see handoff.ts), and resolves with what it says. */
+  call(node: string, c: NodeCall, timeoutMs = 120_000): Promise<any> {
+    const s = this.sessions.get(node);
+    if (!s?.link.connected) return Promise.reject(new Error(`${node} isn't connected`));
+    const id = ++this.nextCall;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        s.calls.delete(id);
+        reject(new Error(`${node} didn't answer in time`));
+      }, timeoutMs);
+      s.calls.set(id, { resolve, reject, timer });
+      s.link.send({ t: 'rpc', id, ...c });
+    });
   }
 
   hosts(ch: string): PtyHost[] {
@@ -200,7 +234,7 @@ class Hub {
     const resumed = !!s && !!h.session && s.id === h.session && !s.link.closed;
     if (s && !resumed) this.end(s, false);
     if (!s || !resumed) {
-      const fresh: Session = { name: h.name, id: randomBytes(12).toString('hex'), channels: new Map(), placed: [], link: null! };
+      const fresh: Session = { name: h.name, id: randomBytes(12).toString('hex'), channels: new Map(), placed: [], calls: new Map(), link: null! };
       fresh.link = new Link<ToNode, FromNode>(
         (m) => this.onMessage(fresh, m),
         () => this.end(fresh, true),
@@ -239,6 +273,11 @@ class Hub {
     s.ws = undefined;
     for (const c of s.channels.values()) c.duplex?.destroy();
     s.channels.clear();
+    for (const c of s.calls.values()) {
+      clearTimeout(c.timer);
+      c.reject(new Error(`${s.name} left the office`));
+    }
+    s.calls.clear();
     if (announce) this.notify(`🖥️ ${s.name} left the office: its workers pick up again when it's back`);
     this.changed();
   }
@@ -291,6 +330,15 @@ class Hub {
       case 'http':
         void this.relay(s, m);
         break;
+      case 'rpc.res': {
+        const c = s.calls.get(m.id);
+        if (!c) return;
+        s.calls.delete(m.id);
+        clearTimeout(c.timer);
+        if (m.ok) c.resolve(m.result);
+        else c.reject(new Error(m.error ?? 'failed'));
+        break;
+      }
     }
   }
 
