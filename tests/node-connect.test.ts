@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { randomBytes, X509Certificate } from 'node:crypto';
 import { once } from 'node:events';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import os from 'node:os';
@@ -110,23 +110,20 @@ test('an invite offers optional, isolated enrollment; its command connects a rea
   assert.equal(registeredNodes(dir).find((n) => n.name === connection.name)?.hash, original.hash, 'another member cannot rekey Alice');
 
   const project = path.join(dir, 'project');
-  const bin = path.join(dir, 'bin');
   mkdirSync(project);
-  mkdirSync(bin);
   const git = (args: string[]) => execFileSync('git', args, { cwd: project, stdio: 'ignore' });
   git(['init', '-q', '-b', 'main']);
   writeFileSync(path.join(project, 'README.md'), '# enrolled\n');
   git(['add', '.']);
   git(['-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'init']);
   const cli = path.resolve('src/server/cli.ts');
-  const wrapper = path.join(bin, 'agent-office');
-  writeFileSync(wrapper, `#!/bin/sh\nexec ${shq(process.execPath)} --import tsx ${shq(cli)} "$@"\n`);
-  chmodSync(wrapper, 0o755);
   const floor = { ch: path.join(project, '.agent-office'), dir: project, origin: () => project, nodeUp() {} };
   hub.addRouter(floor);
   t.after(() => hub.removeRouter(floor));
   const run = (command: string) => {
-    const child = spawn('/bin/sh', ['-c', `exec ${command} --projects ${shq(path.join(dir, 'node-projects'))}`], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const match = /^agent-office node --office '(http:\/\/127\.0\.0\.1:\d+)' --name (member-[0-9a-f]{16}) --token ([0-9a-f]{48}) --max-workers ([1-9]\d*)$/.exec(command);
+    assert.ok(match, 'the generated command contains only the expected node options');
+    const child = spawn(process.execPath, ['--import', 'tsx', cli, 'node', '--office', match[1], '--name', match[2], '--token', match[3], '--max-workers', match[4], '--projects', path.join(dir, 'node-projects')], { stdio: ['ignore', 'pipe', 'pipe'] });
     children.push(child);
     child.stdout!.on('data', (chunk) => (nodeLog += chunk));
     child.stderr!.on('data', (chunk) => (nodeLog += chunk));
