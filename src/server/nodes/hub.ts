@@ -1,5 +1,5 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { readFileSync, unwatchFile, watchFile, writeFileSync } from 'node:fs';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { unwatchFile, watchFile } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Duplex } from 'node:stream';
@@ -8,6 +8,8 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type { NodeView } from '../../shared/protocol.js';
 import { PtyHost } from '../ptys.js';
 import { Link } from './link.js';
+import { authorizedNodes as registered, nodeTokenHash as hash } from './registration.js';
+export { registerNode, registeredNodes, unregisterNode } from './registration.js';
 import { GRACE_MS, NODE_PROTOCOL, type FromNode, type Hello, type NodeStats, type ToNode } from './wire.js';
 
 /** What a floor's router gives the hub (see NodeRouter). */
@@ -40,12 +42,6 @@ interface Session {
   placed: number[];
 }
 
-interface Registered {
-  name: string;
-  hash: string;
-  addedAt: number;
-}
-
 /** A hire that hasn't picked: Auto. `host` is the office's own machine. */
 export const HOST = 'host';
 /** What one more worker is guessed to take before the node's stats show it. */
@@ -53,14 +49,13 @@ const WORKER_MB = 700;
 /** The office's own machine keeps this much back for the office and the browsers' terminals. */
 const HOST_RESERVE_MB = 1536;
 
-const hash = (token: string) => createHash('sha256').update(token).digest('hex');
-
 /**
  * The office's side of its nodes: who may connect (nodes.json), their links, each floor's terminal
  * host on each of them, and where a new worker goes (place). One per office.
  */
 class Hub {
   private file?: string;
+  private accountFile?: string;
   private hookUrl = '';
   private notify: (text: string) => void = () => {};
   private changed: () => void = () => {};
@@ -81,16 +76,20 @@ class Hub {
   /** Called once the office knows where it keeps its data and where its hook server is. */
   init(dataDir: string, hookPort: number, notify: (text: string) => void, changed: () => void) {
     if (this.file) unwatchFile(this.file, this.registrationChanged);
+    if (this.accountFile) unwatchFile(this.accountFile, this.registrationChanged);
     this.file = path.join(dataDir, 'nodes.json');
+    this.accountFile = path.join(dataDir, 'accounts.json');
     this.hookUrl = `http://127.0.0.1:${hookPort}`;
     this.notify = notify;
     this.changed = changed;
     watchFile(this.file, { interval: 500, persistent: false }, this.registrationChanged);
+    watchFile(this.accountFile, { interval: 500, persistent: false }, this.registrationChanged);
   }
 
   /** The office is closing: links go, and a node that comes back finds a new office and a new session. */
   shutdown() {
     if (this.file) unwatchFile(this.file, this.registrationChanged);
+    if (this.accountFile) unwatchFile(this.accountFile, this.registrationChanged);
     for (const s of [...this.sessions.values()]) this.end(s, false);
     this.routers.clear();
   }
@@ -339,37 +338,3 @@ class Hub {
 }
 
 export const hub = new Hub();
-
-// --- nodes.json ------------------------------------------------------------------------------------
-
-function registered(file: string | undefined): Registered[] {
-  if (!file) return [];
-  try {
-    const list = JSON.parse(readFileSync(file, 'utf8')).nodes;
-    return Array.isArray(list) ? list : [];
-  } catch {
-    return [];
-  }
-}
-
-/** Adds (or re-keys) a node; returns its token, which is only ever shown this once. */
-export function registerNode(dataDir: string, name: string): string {
-  const file = path.join(dataDir, 'nodes.json');
-  const token = randomBytes(24).toString('hex');
-  const nodes = registered(file).filter((n) => n.name !== name);
-  nodes.push({ name, hash: hash(token), addedAt: Date.now() });
-  writeFileSync(file, JSON.stringify({ nodes }, null, 2), { mode: 0o600 });
-  return token;
-}
-
-export function unregisterNode(dataDir: string, name: string): boolean {
-  const file = path.join(dataDir, 'nodes.json');
-  const before = registered(file);
-  const nodes = before.filter((n) => n.name !== name);
-  writeFileSync(file, JSON.stringify({ nodes }, null, 2), { mode: 0o600 });
-  return nodes.length !== before.length;
-}
-
-export function registeredNodes(dataDir: string): Registered[] {
-  return registered(path.join(dataDir, 'nodes.json'));
-}

@@ -306,7 +306,7 @@ For HTTPS on your own domain, point a DNS record at the server and add `bash -s 
 
 ## More machines for the workers
 
-Lend the office your teammates' computers: run `agent-office nodes add <name>` on the office's machine, and the command it prints on theirs. The node connects out to the office, clones its projects, and from then on a new worker in its own worktree can run there, as that teammate, with their own Claude and GitHub. **Auto** puts each one on the machine with the most memory to spare, or you pin it in the hire window. A node's `--max-workers` applies either way. Its terminal shows in the office like any other, and its work comes back as a pull request. `agent-office nodes remove <name>` disconnects it. The details, and what doesn't work on a node yet, are in [docs/nodes.md](docs/nodes.md).
+Lend the office your teammates' computers: after accepting an account invite, they can choose **Connect your machine** and copy a command to run on their computer. It registers a node for their account, with a worker limit they choose, without an admin running a terminal command. They can skip it or visit `/connect-node` later. For manually managed nodes, run `agent-office nodes add <name>` on the office's machine, and the command it prints on theirs. The node connects out to the office, clones its projects, and from then on a new worker in its own worktree can run there, as that teammate, with their own Claude and GitHub. **Auto** puts each one on the machine with the most memory to spare, or you pin it in the hire window. A node's `--max-workers` applies either way. Its terminal shows in the office like any other, and its work comes back as a pull request. `agent-office nodes remove <name>` disconnects it. The details, and what doesn't work on a node yet, are in [docs/nodes.md](docs/nodes.md).
 
 ## Add users
 
@@ -337,7 +337,7 @@ Their key logs in as a locked-down `office` user that can only forward to the of
 
 A teammate with the `agent-office` command on their computer can run `agent-office tunnel office@<your-office-ip>` instead of the `ssh` line: it opens the same tunnel, and every web server a worker starts opens on their computer too ([docs/tunnel.md](docs/tunnel.md)).
 
-**2. Make them an account.** Open **☰ → 🔑 Accounts** and make an invite link. Name it (or let them pick) and make them a *Member* or an *Admin*. The link works once, for 7 days, and they choose their own password. Make one for yourself too, as an admin.
+**2. Make them an account.** Open **☰ → 🔑 Accounts** and make an invite link. Name it (or let them pick) and make them a *Member* or an *Admin*. The link works once, for 7 days, and they choose their own password. After joining, they can optionally share their machine through **Connect your machine**, or enter the office without sharing. Make one for yourself too, as an admin.
 
 The same works from a terminal on the office's machine, even while it runs:
 
@@ -362,7 +362,7 @@ deploy/coolify.sh ssh 'node /opt/agent-office/bin/agent-office.js accounts invit
 
 **3. Turn off the shared password.** Until you do, anyone who knows the office password can get in, as an admin. Once everyone has an account, switch it off in **🔑 Accounts** (signed in with your own admin account), or `agent-office accounts password off`.
 
-**Removing someone.** Revoke their account in **🔑 Accounts** (or `agent-office accounts revoke <name>`), and on a server also remove them in **👥 Invite teammates** (on AWS, `deploy/aws.sh uninvite <name>`; on Railway, `deploy/railway.sh uninvite <name>`; on Fly.io, `deploy/fly.sh uninvite <name>`; on Dokploy, `deploy/dokploy.sh uninvite <name>`; on Coolify, `deploy/coolify.sh uninvite <name>`) to take away their SSH keys and drop open tunnels (other teammates just reconnect). If the shared password is still on, change it with `deploy/aws.sh reset-password` (or `deploy/railway.sh reset-password`, `deploy/fly.sh reset-password`, `deploy/dokploy.sh reset-password` or `deploy/coolify.sh reset-password`).
+**Removing someone.** Revoking an account also disconnects the node it registered through `/connect-node`; manually added nodes must be removed separately with `agent-office nodes remove <name>`. Revoke their account in **🔑 Accounts** (or `agent-office accounts revoke <name>`), and on a server also remove them in **👥 Invite teammates** (on AWS, `deploy/aws.sh uninvite <name>`; on Railway, `deploy/railway.sh uninvite <name>`; on Fly.io, `deploy/fly.sh uninvite <name>`; on Dokploy, `deploy/dokploy.sh uninvite <name>`; on Coolify, `deploy/coolify.sh uninvite <name>`) to take away their SSH keys and drop open tunnels (other teammates just reconnect). If the shared password is still on, change it with `deploy/aws.sh reset-password` (or `deploy/railway.sh reset-password`, `deploy/fly.sh reset-password`, `deploy/dokploy.sh reset-password` or `deploy/coolify.sh reset-password`).
 
 ## Controls
 

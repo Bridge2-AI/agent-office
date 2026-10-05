@@ -1,0 +1,11 @@
+html body { height: auto; min-height: 100%; }
+body .card { width: min(560px, 100%); }
+.check.consent { align-items: flex-start; justify-content: flex-start; font-weight: 700; text-align: left; }
+.consent input { flex: none; margin-top: 3px; }
+.limit { margin-top: 16px; }
+.limit input { max-width: 110px; display: block; }
+body .warn { margin-top: 16px; }
+textarea { width: 100%; margin-top: 8px; padding: 12px; border: 3px solid var(--border); border-radius: 12px; font: 13px ui-monospace, Menlo, monospace; background: #fff; color: var(--ink); resize: vertical; }
+textarea:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+#connection label { margin-top: 16px; }
+.continue { display: inline-block; margin: 12px 0; }
