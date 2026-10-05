@@ -6,6 +6,7 @@ import { agentRoutes } from './agents.js';
 import { authRoutes } from './auth.js';
 import { fileRoutes } from './files.js';
 import { githubRoutes } from './github.js';
+import { nodeConnectRoutes } from './node-connect.js';
 import { pageRoutes } from './pages.js';
 import { searchRoutes } from './search.js';
 import { serviceRoutes } from './services.js';
@@ -27,6 +28,9 @@ export const routes: readonly Route[] = [
   pageRoutes.favicon,
   // Signed in.
   authRoutes.whoami,
+  nodeConnectRoutes.page,
+  nodeConnectRoutes.info,
+  nodeConnectRoutes.connect,
   agentRoutes.models,
   fileRoutes.image,
   fileRoutes.whiteboardFile,

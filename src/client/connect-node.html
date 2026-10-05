@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Office · Connect your machine</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="stylesheet" href="./login.css" />
+    <link rel="stylesheet" href="./connect-node.css" />
+  </head>
+  <body>
+    <main class="card">
+      <h1>Connect your machine</h1>
+      <p class="sub">You're signed in. You can also lend this computer to the office's workers.</p>
+      <p class="note">Optional. Install the same version of agent-office on Linux, macOS or Windows with WSL, and sign in to Claude and GitHub there first.</p>
+      <form id="connect-form" hidden>
+        <label class="check consent"><input id="consent" type="checkbox" required />I agree to share this machine's resources and Claude, GitHub and git sign-ins with office workers.</label>
+        <p class="note">Other people in the office can open and type in those workers' terminals. Closing the office tab does not stop the node.</p>
+        <label class="limit">Maximum workers on this machine<input id="max-workers" type="number" min="1" step="1" value="1" required /></label>
+        <p id="replacement" class="warn" hidden>You already registered a machine. Creating a replacement command disconnects its workers and invalidates the previous command.</p>
+        <button id="generate" type="submit">Create connection command</button>
+      </form>
+      <section id="connection" hidden aria-label="Connection command">
+        <p id="machine" class="note"></p>
+        <label>Run this in a terminal on the machine you want to share<textarea id="command" rows="5" readonly spellcheck="false"></textarea></label>
+        <button id="copy" type="button">Copy command</button>
+        <p class="note">Keep that terminal running. If you joined through SSH, keep the tunnel open too and run this in a second terminal. On Windows, run the SSH tunnel and node in WSL, or use WSL mirrored networking. Auto can place new workers here once the project is ready. Check Machines in the office for its status.</p>
+        <p class="note">Save the command privately. Its token is only shown here. Revisit this page to replace a lost command. Revoking your office account disconnects this node.</p>
+      </section>
+      <p id="error" class="error" role="alert"></p>
+      <a id="continue" class="continue" href="/">Continue without sharing →</a>
+      <p class="note">You can come back to <a href="/connect-node">/connect-node</a> later.</p>
+    </main>
+    <script type="module" src="./connect-node.ts"></script>
+  </body>
+</html>

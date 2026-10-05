@@ -71,7 +71,7 @@ form.addEventListener('submit', async (e) => {
     } catch {
       // storage blocked
     }
-    location.replace('/');
+    location.replace('/connect-node');
   } catch {
     error.textContent = 'Server unreachable';
   } finally {

@@ -4,7 +4,17 @@ Back to the [README](../README.md).
 
 One office, the compute of several machines. A **node** is a teammate's computer (or a spare server) running `agent-office node`. It connects out to the office, so it needs no open ports, and the office can then run new workers on it. Each worker's terminal shows in the office like any other: anyone can open it and type. The work comes back the way all work in the office does, as a pushed branch and a pull request.
 
-## Add one
+## Connect through an invite
+
+Accept an account invite link and make your account. The next page offers **Connect your machine**, or **Continue without sharing**. You can also open `/connect-node` later while signed in with your own account. A shared office password alone cannot register a machine through this page.
+
+On the computer you want to share, install the same version of agent-office and sign in to `claude` and `gh`. Linux, macOS and WSL on Windows are supported. Check the sharing consent, choose the maximum workers (default 1), and copy the connection command into a terminal on that computer. Leave it running. If you joined through an SSH tunnel, keep that tunnel open and use a second terminal for the node. On Windows, run both the SSH tunnel and the node inside WSL, or enable WSL mirrored networking so the Windows tunnel is reachable from WSL. The command uses the address you opened the office on, including the forwarded port or Tailscale address, and pins the certificate when the office serves HTTPS directly.
+
+The page registers the node using the same code as `agent-office nodes add`. It allows one node per account, named `member-<account-id>`. The office can use it on **Auto** once it connects and has cloned the project. Connecting is optional and does not move existing workers. Office workers use the node's own sign-ins, and anyone in the office can open and type in their terminals. Closing the browser tab leaves the node running; stop its terminal to stop lending compute.
+
+The token is only displayed with the command, and its hash is saved. Save the command privately. To replace a lost command, return to `/connect-node`, agree to sharing again, and choose **Replace connection command**. This invalidates the previous command and disconnects the old node. Revoking the account also disconnects its node and prevents it reconnecting. An admin can remove the node with `agent-office nodes remove member-<account-id>`.
+
+## Add one from the terminal
 
 On the office's machine (it can be running):
 

@@ -81,7 +81,7 @@ before(async () => {
   for (const page of ['index', 'login', 'claim', 'join', 'lite']) writeFileSync(path.join(publicDir, `${page}.html`), `<!doctype html><title>${page}</title>`);
   // The worker: says where it runs, asks the office who's at their desks, then echoes what it's typed.
   const agent = path.join(bin, 'fake-agent');
-  writeFileSync(agent, '#!/bin/sh\npwd > .node-ran\necho "start $(date +%s) $$" >> .node-starts\noffice-workers list > .node-workers 2>&1\necho fake-agent-ready\nexec cat\n');
+  writeFileSync(agent, '#!/bin/sh\necho "start $(date +%s) $$" >> .node-starts\npwd > .node-ran\noffice-workers list > .node-workers 2>&1\necho fake-agent-ready\nexec cat\n');
   chmodSync(agent, 0o755);
 
   for (const k of Object.keys(process.env)) if (k.startsWith('AGENT_OFFICE_')) delete process.env[k];
