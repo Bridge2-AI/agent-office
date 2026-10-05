@@ -12,6 +12,7 @@ import { excludeFromGit } from '../config.js';
 import { DSH_PROFILE_DEFAULT } from '../dsh.js';
 import { PROVIDERS } from '../providers/index.js';
 import { PTY_PROTOCOL, PtyHost, readMessages, type SpawnOpts } from '../ptys.js';
+import { MAX_WORKER_LIMIT, parseWorkerLimit } from '../machine.js';
 import { childEnv } from '../workers/env.js';
 import { binScript, defaultShell, resolveCommand, shellRun, shq, writeOfficeCommands } from '../workers/process.js';
 import { Link } from './link.js';
@@ -93,7 +94,10 @@ function parse(argv: string[]): Options | number {
       else if (a === '--name') name = value();
       else if (a === '--pin') pin = value();
       else if (a === '--projects') projects = path.resolve(value());
-      else if (a === '--max-workers') maxWorkers = Math.max(1, Number(value()) || 1);
+      else if (a === '--max-workers') {
+        maxWorkers = parseWorkerLimit(value());
+        if (maxWorkers === undefined) throw new Error(`--max-workers needs a whole number from 1 to ${MAX_WORKER_LIMIT}`);
+      }
       else throw new Error(`unknown option ${a}`);
     } catch (err) {
       console.error(`agent-office node: ${(err as Error).message}\n\n${HELP}`);
@@ -132,8 +136,8 @@ class Node {
   private link?: Link<FromNode, ToNode>;
   private session?: string;
   private floors = new Map<string, Floor>();
-  /** Terminals running here for the office, for the stats. */
-  private live = new Set<string>();
+  /** Terminals running or starting here, by floor, for the cap and stats. */
+  private live = new Map<string, string>();
   private relayUrl = '';
   private pending = new Map<number, (r: Extract<ToNode, { t: 'http.res' }>) => void>();
   private nextId = 0;
@@ -254,15 +258,16 @@ class Node {
     found.sock.on('close', () => {
       if (this.floors.get(ch) !== floor) return;
       this.floors.delete(ch);
+      for (const [id, on] of this.live) if (on === ch) this.live.delete(id);
       this.send({ t: 'floor.error', ch, error: 'its terminal host stopped' });
     });
-    for (const id of found.sessions) this.live.add(id);
+    for (const id of found.sessions) this.live.set(id, ch);
     this.send({ t: 'floor.ready', ch, version: PTY_PROTOCOL, sessions: found.sessions });
   }
 
   private fromHost(f: Floor, m: any) {
     if (m.t === 'spawned' || m.t === 'attached') {
-      this.live.add(m.id);
+      this.live.set(m.id, f.ch);
       // The office's port scan reads its own machine's processes: a pid from here would name one of those.
       m.pid = 0;
     } else if (m.t === 'exit' || m.t === 'gone') this.live.delete(m.id);
@@ -271,6 +276,11 @@ class Node {
 
   /** The office's spawn, made to work here: this machine's paths, commands, environment and the worker's worktree. */
   private async spawn(f: Floor, id: string, opts: SpawnOpts) {
+    if (this.o.maxWorkers && this.live.size >= this.o.maxWorkers) {
+      this.send({ t: 'pty', ch: f.ch, m: { t: 'exit', id, exitCode: -1, error: `this node is at its worker limit of ${this.o.maxWorkers}` } });
+      return;
+    }
+    this.live.set(id, f.ch);
     try {
       const r = opts.remote;
       if (!r) throw new Error('the office sent a spawn with no worktree');
@@ -293,6 +303,7 @@ class Node {
       const spawn: SpawnOpts = { file, args: argv, cwd, env, cols: opts.cols, rows: opts.rows, prelude: opts.prelude };
       f.sock!.write(`${JSON.stringify({ t: 'spawn', id, opts: spawn })}\n`);
     } catch (err) {
+      this.live.delete(id);
       this.send({ t: 'pty', ch: f.ch, m: { t: 'exit', id, exitCode: -1, error: (err as Error).message } });
     }
   }

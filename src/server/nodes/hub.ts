@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, unwatchFile, watchFile, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Duplex } from 'node:stream';
@@ -30,6 +30,7 @@ interface Channel {
 interface Session {
   name: string;
   id: string;
+  credential: string;
   link: Link<ToNode, FromNode>;
   ws?: WebSocket;
   stats?: NodeStats;
@@ -66,19 +67,30 @@ class Hub {
   private sessions = new Map<string, Session>();
   private routers = new Map<string, Routed>();
   private pins = new Map<string, string>();
+  private registrationChanged = () => {
+    const allowed = new Map(registered(this.file).map((n) => [n.name, n.hash]));
+    for (const s of this.sessions.values()) {
+      if (allowed.get(s.name) === s.credential) continue;
+      this.end(s, false);
+      this.notify(`🖥️ ${s.name} was removed or re-keyed: its workers are disconnected`);
+    }
+  };
   /** Its own, for a terminal's snapshot can be far bigger than anything a browser sends. */
   private wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 * 1024 });
 
   /** Called once the office knows where it keeps its data and where its hook server is. */
   init(dataDir: string, hookPort: number, notify: (text: string) => void, changed: () => void) {
+    if (this.file) unwatchFile(this.file, this.registrationChanged);
     this.file = path.join(dataDir, 'nodes.json');
     this.hookUrl = `http://127.0.0.1:${hookPort}`;
     this.notify = notify;
     this.changed = changed;
+    watchFile(this.file, { interval: 500, persistent: false }, this.registrationChanged);
   }
 
   /** The office is closing: links go, and a node that comes back finds a new office and a new session. */
   shutdown() {
+    if (this.file) unwatchFile(this.file, this.registrationChanged);
     for (const s of [...this.sessions.values()]) this.end(s, false);
     this.routers.clear();
   }
@@ -119,6 +131,10 @@ class Hub {
   /** The terminal host on `node` for floor `ch`, if it's there to take a worker now. */
   hostOn(node: string, ch: string): PtyHost | undefined {
     const s = this.sessions.get(node);
+    if (s && registered(this.file).find((n) => n.name === node)?.hash !== s.credential) {
+      this.registrationChanged();
+      return undefined;
+    }
     return s?.link.connected ? s.channels.get(ch)?.host : undefined;
   }
 
@@ -141,13 +157,12 @@ class Hub {
    */
   place(ch: string): string {
     // ponytail: free memory only, with a guess per fresh worker; weigh CPU load too if builds pile up on one node
-    const recent = (s: Session) => (s.placed = s.placed.filter((t) => Date.now() - t < 60_000)).length;
     let best = HOST;
     let bestMb = os.freemem() / 2 ** 20 - HOST_RESERVE_MB;
     for (const s of this.sessions.values()) {
       if (!this.hostOn(s.name, ch) || !s.stats) continue;
-      if (s.stats.maxWorkers && s.stats.workers + recent(s) >= s.stats.maxWorkers) continue;
-      const mb = s.stats.memFree / 2 ** 20 - recent(s) * WORKER_MB;
+      if (this.atLimit(s.name)) continue;
+      const mb = s.stats.memFree / 2 ** 20 - this.recent(s) * WORKER_MB;
       if (mb > bestMb) [best, bestMb] = [s.name, mb];
     }
     return best;
@@ -155,6 +170,16 @@ class Hub {
 
   placed(node: string) {
     this.sessions.get(node)?.placed.push(Date.now());
+  }
+
+  atLimit(node: string): boolean {
+    const s = this.sessions.get(node);
+    return !!s?.stats?.maxWorkers && s.stats.workers + this.recent(s) >= s.stats.maxWorkers;
+  }
+
+  private recent(s: Session): number {
+    s.placed = s.placed.filter((t) => Date.now() - t < 60_000);
+    return s.placed.length;
   }
 
   // --- connections --------------------------------------------------------------------------------
@@ -200,7 +225,7 @@ class Hub {
     const resumed = !!s && !!h.session && s.id === h.session && !s.link.closed;
     if (s && !resumed) this.end(s, false);
     if (!s || !resumed) {
-      const fresh: Session = { name: h.name, id: randomBytes(12).toString('hex'), channels: new Map(), placed: [], link: null! };
+      const fresh: Session = { name: h.name, id: randomBytes(12).toString('hex'), credential: hash(h.token), channels: new Map(), placed: [], link: null! };
       fresh.link = new Link<ToNode, FromNode>(
         (m) => this.onMessage(fresh, m),
         () => this.end(fresh, true),
@@ -285,6 +310,9 @@ class Hub {
         s.channels.get(m.ch)?.duplex?.push(`${JSON.stringify(m.m)}\n`);
         break;
       case 'stats':
+        this.registrationChanged();
+        if (s.link.closed) return;
+        s.placed.splice(0, Math.max(0, m.stats.workers - (s.stats?.workers ?? 0)));
         s.stats = m.stats;
         this.changed();
         break;

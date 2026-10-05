@@ -306,7 +306,7 @@ For HTTPS on your own domain, point a DNS record at the server and add `bash -s 
 
 ## More machines for the workers
 
-Lend the office your teammates' computers: run `agent-office nodes add <name>` on the office's machine, and the command it prints on theirs. The node connects out to the office, clones its projects, and from then on a new worker in its own worktree can run there, as that teammate, with their own Claude and GitHub. **Auto** puts each one on the machine with the most memory to spare, or you pin it in the hire window. Its terminal shows in the office like any other, and its work comes back as a pull request. The details, and what doesn't work on a node yet, are in [docs/nodes.md](docs/nodes.md).
+Lend the office your teammates' computers: run `agent-office nodes add <name>` on the office's machine, and the command it prints on theirs. The node connects out to the office, clones its projects, and from then on a new worker in its own worktree can run there, as that teammate, with their own Claude and GitHub. **Auto** puts each one on the machine with the most memory to spare, or you pin it in the hire window. A node's `--max-workers` applies either way. Its terminal shows in the office like any other, and its work comes back as a pull request. `agent-office nodes remove <name>` disconnects it. The details, and what doesn't work on a node yet, are in [docs/nodes.md](docs/nodes.md).
 
 ## Add users
 
