@@ -71,6 +71,7 @@ export class NodeRouter extends PtyHost implements Routed {
     if (!info || !node) return super.spawn(opts);
     const host = hub.hostOn(node, this.ch);
     if (!host) throw new Error(`it runs on ${node}, which isn't connected to the office right now — it starts again when ${node} is back`);
+    if (hub.atLimit(node)) throw new Error(`${node} is at its worker limit`);
     hub.placed(node);
     const p = host.spawn(remoteOpts(opts, info));
     this.remember(p, node);

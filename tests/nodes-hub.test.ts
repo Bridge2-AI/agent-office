@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer } from 'ws';
-import { HOST, hub, registerNode, type Routed } from '../src/server/nodes/hub.js';
+import { HOST, hub, registerNode, unregisterNode, type Routed } from '../src/server/nodes/hub.js';
 import { Link } from '../src/server/nodes/link.js';
 import { NodeRouter } from '../src/server/nodes/router.js';
 import { GRACE_MS, NODE_PROTOCOL, type FromNode, type Hello, type NodeStats, type ToNode } from '../src/server/nodes/wire.js';
@@ -146,6 +146,28 @@ test('a registered node is welcomed, and after its socket drops it resumes the s
   }
 });
 
+test('removing or re-keying a node disconnects its live session', async (t) => {
+  const f = floor('revocation');
+  hub.addRouter(f);
+  t.after(() => hub.removeRouter(f));
+  const token = registerNode(dir, 'revoked');
+  const n = node('revoked', token);
+  const first = await n.join();
+  await until(() => n.told.some((m) => m.t === 'floor.open' && m.ch === f.ch));
+  n.link.send({ t: 'floor.ready', ch: f.ch, version: PTY_PROTOCOL, sessions: [] });
+  await until(() => hub.hostOn('revoked', f.ch));
+
+  registerNode(dir, 'revoked');
+  await until(() => first.ws.readyState === WebSocket.CLOSED, 'the old token to be revoked');
+  assert.equal(hub.hostOn('revoked', f.ch), undefined);
+
+  const replacement = node('revoked', registerNode(dir, 'revoked'));
+  const second = await replacement.join();
+  assert.equal(second.reply.t, 'welcome');
+  unregisterNode(dir, 'revoked');
+  await until(() => second.ws.readyState === WebSocket.CLOSED, 'the removed node to disconnect');
+});
+
 test(
   "a node that comes back on a new session while its old socket hangs on isn't announced as gone",
   async (t) => {
@@ -218,16 +240,18 @@ test('a new worker goes to the machine with the most memory to spare, until a no
   hub.placed('big');
   assert.equal(hub.place(f.ch), HOST); // 8192 - 2100 MB < 8192 - 1536 MB
 
-  // With memory to burn, it's how many workers it said it takes that stops it: 1 running + 3 just placed.
+  // Once stats include a placed worker, its reservation no longer counts again.
   const say = async (s: NodeStats) => {
     big.link.send({ t: 'stats', stats: s });
     await until(() => JSON.stringify(view('big')?.stats) === JSON.stringify(s), 'the new stats');
   };
-  await say(stats({ memFree: 2 ** 50, workers: 1, maxWorkers: 5 }));
+  await say(stats({ memFree: 2 ** 50, workers: 2, maxWorkers: 4 }));
   assert.equal(hub.place(f.ch), 'big');
-  await say(stats({ memFree: 2 ** 50, workers: 1, maxWorkers: 4 }));
+  hub.placed('big');
   assert.equal(hub.place(f.ch), HOST);
-  await say(stats({ memFree: 2 ** 50, workers: 1, maxWorkers: 0 }));
+  await say(stats({ memFree: 2 ** 50, workers: 4, maxWorkers: 4 }));
+  assert.equal(hub.place(f.ch), HOST);
+  await say(stats({ memFree: 2 ** 50, workers: 4, maxWorkers: 0 }));
   assert.equal(hub.place(f.ch), 'big', 'no maximum set');
 });
 
@@ -315,6 +339,11 @@ test("a floor's router sends a fresh agent in its own worktree to a node, with o
   const away = hire({ deskId: 'desk-8' });
   assert.throws(() => start(away), /isn't connected/);
   assert.equal(away.node, 'gone', 'it waits for its node rather than moving');
+
+  far.link.send({ t: 'stats', stats: stats({ workers: 1, maxWorkers: 1 }) });
+  await until(() => view('far')?.stats?.maxWorkers === 1);
+  hub.pin(router.ch, 'desk-9', 'far');
+  assert.throws(() => start(hire({ deskId: 'desk-9' })), /worker limit/);
 
   // Past start-up, the node coming back (a new session) ends terminals nobody claimed and resumes its exited workers.
   router.killUnclaimed();

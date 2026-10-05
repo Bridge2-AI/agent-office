@@ -59,7 +59,7 @@ export function nodesCommand(argv: string[]): number {
         console.error(`agent-office nodes: there's no node called ${name}`);
         return 1;
       }
-      console.log(`Removed ${name}: it can't join again (one that's connected now stays until it next reconnects).`);
+      console.log(`Removed ${name}: its connection closes and it can't join again.`);
       return 0;
     default:
       return usage(`unknown command ${cmd}`);

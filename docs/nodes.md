@@ -24,14 +24,14 @@ On the node (Linux, macOS, or WSL on Windows: like the office, a node needs a Un
 - `--projects <dir>` is where the node clones the office's projects (default `~/agent-office-node`). Keep it apart from any office of your own on that machine.
 - `--max-workers <n>` caps how many workers it takes at once.
 
-`agent-office nodes` lists the nodes the office knows, and `agent-office nodes remove alice-pc` stops one from joining again.
+`agent-office nodes` lists the nodes the office knows. `agent-office nodes remove alice-pc` disconnects it and stops it joining again; adding the same name again also disconnects its old token. Workers already running on a removed node become unavailable in the office until that node is added and connected again.
 
 ## Where a worker runs
 
 When you hire a worker **in its own git worktree**, the hire window's **🖥️ Runs on** (in the Ask window too, and on `/lite`) picks the machine. It only shows once a node has joined:
 
 - **Auto** (the default): the machine with the most memory to spare right now. That's the office's own machine, which keeps 1.5 GB back for the office itself, or any node that's connected, has the project ready, and isn't at its `--max-workers`. Each worker placed in the last minute counts 700 MB against its machine until the node's numbers catch up, so a burst of hires spreads out.
-- **This office's machine**, or a **node by name**, to pin it.
+- **This office's machine**, or a **node by name**, to pin it. A full node refuses a pinned hire too.
 
 The worker stays on that machine for good. The workers list (and its card on `/lite`) says which one: 🖥️ alice-pc. A card dropped on a desk hires on Auto. Everything else runs on the office's machine: shells, board agents, meetings, workers without a worktree of their own, and workers across several repositories.
 
