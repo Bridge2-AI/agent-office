@@ -67,12 +67,13 @@ export class NodeRouter extends PtyHost implements Routed {
 
   override spawn(opts: SpawnOpts): Pty {
     const info = this.workers.get(opts.env.AGENT_OFFICE_WORKER_ID ?? '');
+    const fresh = info?.node === undefined;
     const node = info && this.where(info);
     if (!info || !node) return super.spawn(opts);
     const host = hub.hostOn(node, this.ch);
     if (!host) throw new Error(`it runs on ${node}, which isn't connected to the office right now — it starts again when ${node} is back`);
-    if (hub.atLimit(node)) throw new Error(`${node} is at its worker limit`);
-    hub.placed(node);
+    if (fresh && hub.atLimit(node)) throw new Error(`${node} is at its worker limit`);
+    if (fresh) hub.placed(node);
     const p = host.spawn(remoteOpts(opts, info));
     this.remember(p, node);
     return p;

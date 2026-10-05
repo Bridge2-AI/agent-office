@@ -344,6 +344,8 @@ test("a floor's router sends a fresh agent in its own worktree to a node, with o
   await until(() => view('far')?.stats?.maxWorkers === 1);
   hub.pin(router.ch, 'desk-9', 'far');
   assert.throws(() => start(hire({ deskId: 'desk-9' })), /worker limit/);
+  const returning = hire({ node: 'far' });
+  assert.doesNotThrow(() => start(returning), 'a returning worker can restart before the next stats report');
 
   // Past start-up, the node coming back (a new session) ends terminals nobody claimed and resumes its exited workers.
   router.killUnclaimed();
